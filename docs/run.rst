@@ -85,6 +85,41 @@ from source files with a ``.py`` extension.
 
 .. _Live tracking:
 
+Python allocator tracking
+-------------------------
+
+Normally, Memray will only track allocations and deallocations that are
+requested to the system allocator instead of every request for memory that the
+Python interpreter makes to create Python objects. This is because generally
+requests for memory that the Python interpreter doesn't always translate to
+calls to the system allocators You can read our documentation on :doc:`python
+allocators <python_allocators>` for more information on how the Python allocator
+avoids requesting memory from the system every time someone makes a request.
+This behaviour corresponds to how Python normally executes programs and is directly responsible
+of keeping it fast and this translates to profiling as well.
+
+Sometimes, it may still be interesting to track the requests that the
+interpreter does to the Python allocators (even if these won't translate into
+actual memory being consumed at that point) and although this generates a lot more data and
+makes profiling slower, it may help in some situations.
+
+.. note::
+  This acts also as an alternative way to run with `PYTHONMALLOC=malloc` but
+  in a way that allows to distiguish allocations made by the system alloactor
+  and the ones made by the Python allocator.
+
+To activate Python allocator tracking, you need to provide the
+``--track-python-allocators`` argument when using the ``run`` subcommand:
+
+.. code:: shell
+
+  memray run --track-python-allocators example.py
+
+.. caution:: 
+  Tracking the Python allocators will result in much larger report files and
+  slower profiling due to the increase in the ammount of data that needs to be
+  collected.
+
 Live tracking
 -------------
 

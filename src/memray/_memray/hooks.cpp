@@ -52,10 +52,14 @@ allocatorKind(const Allocator& allocator)
         case Allocator::ALIGNED_ALLOC:
         case Allocator::PVALLOC:
         case Allocator::REALLOC:
-        case Allocator::VALLOC: {
+        case Allocator::VALLOC:
+        case Allocator::PYMALLOC_MALLOC:
+        case Allocator::PYMALLOC_CALLOC:
+        case Allocator::PYMALLOC_REALLOC: {
             return AllocatorKind::SIMPLE_ALLOCATOR;
         }
-        case Allocator::FREE: {
+        case Allocator::FREE:
+        case Allocator::PYMALLOC_FREE: {
             return AllocatorKind::SIMPLE_DEALLOCATOR;
         }
         case Allocator::MMAP: {
@@ -97,6 +101,57 @@ ensureAllHooksAreValid()
 }  // namespace memray::hooks
 
 namespace memray::intercept {
+
+void*
+pymalloc_malloc(void* ctx, size_t size) noexcept
+{
+    PyMemAllocatorEx* alloc = (PyMemAllocatorEx*)ctx;
+    void* ptr = nullptr;
+    {
+        tracking_api::RecursionGuard guard;
+        ptr = alloc->malloc(alloc->ctx, size);
+    }
+    tracking_api::Tracker::trackAllocation(ptr, size, hooks::Allocator::PYMALLOC_MALLOC);
+    return ptr;
+}
+
+void*
+pymalloc_realloc(void* ctx, void* ptr, size_t new_size) noexcept
+{
+    PyMemAllocatorEx* alloc = (PyMemAllocatorEx*)ctx;
+    void* ptr2 = nullptr;
+    tracking_api::Tracker::getTracker()->trackAllocation(ptr, 0, hooks::Allocator::PYMALLOC_FREE);
+    {
+        tracking_api::RecursionGuard guard;
+        ptr2 = alloc->realloc(alloc->ctx, ptr, new_size);
+    }
+    tracking_api::Tracker::trackAllocation(ptr2, new_size, hooks::Allocator::PYMALLOC_REALLOC);
+    return ptr2;
+}
+
+void*
+pymalloc_calloc(void* ctx, size_t nelem, size_t size) noexcept
+{
+    PyMemAllocatorEx* alloc = (PyMemAllocatorEx*)ctx;
+    void* ptr = nullptr;
+    {
+        tracking_api::RecursionGuard guard;
+        ptr = alloc->calloc(alloc->ctx, nelem, size);
+    }
+    tracking_api::Tracker::trackAllocation(ptr, nelem * size, hooks::Allocator::PYMALLOC_CALLOC);
+    return ptr;
+}
+
+void
+pymalloc_free(void* ctx, void* ptr) noexcept
+{
+    PyMemAllocatorEx* alloc = (PyMemAllocatorEx*)ctx;
+    {
+        tracking_api::RecursionGuard guard;
+        alloc->free(alloc->ctx, ptr);
+    }
+    tracking_api::Tracker::trackDeallocation(ptr, 0, hooks::Allocator::PYMALLOC_FREE);
+}
 
 void*
 mmap(void* addr, size_t length, int prot, int flags, int fd, off_t offset) noexcept
