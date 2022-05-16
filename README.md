@@ -37,6 +37,11 @@ Memray can help with the following problems:
 
 Note that Memray only works on Linux and cannot be installed on other platforms.
 
+<p align="center">
+<img src="https://user-images.githubusercontent.com/11718525/168684569-b82e5eaa-c2bf-428d-b709-8960289f3284.png" width="100%">
+</p>
+
+
 # Installation
 
 Memray requires Python 3.7+ and can be easily installed using most common Python
