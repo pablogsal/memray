@@ -247,6 +247,7 @@ cdef class ProfileFunctionGuard:
         deregistered when the PyThreadState is destroyed, so we can also use
         this to perform some cleanup when a thread dies.
         """
+        print("Bye!")
         forget_python_stack()
 
 
@@ -320,7 +321,7 @@ cdef class Tracker:
 
     def __init__(self, object file_name=None, *, object destination=None,
                   bool native_traces=False, unsigned int memory_interval_ms = 10,
-                  bool follow_fork=False, bool trace_python_allocators=False):
+                  bool follow_fork=False, bool trace_python_allocators=False, size_t sampling_interval=1):
         if sys.platform == "darwin":
             pprint(":warning: [bold red] Memray support in MacOS is still experimental [/]:warning:", file=sys.stderr)
             pprint("[yellow]Please report any issues at https://github.com/bloomberg/memray/issues[/]", file=sys.stderr)
