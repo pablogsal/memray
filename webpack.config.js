@@ -6,6 +6,7 @@ module.exports = {
   entry: {
     flamegraph: "./src/memray/reporters/assets/flamegraph.js",
     table: "./src/memray/reporters/assets/table.js",
+    heatmap: "./src/memray/reporters/assets/heatmap.js",
   },
   output: {
     path: path.resolve("src/memray/reporters/templates/assets"),

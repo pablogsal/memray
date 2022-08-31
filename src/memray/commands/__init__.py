@@ -22,6 +22,7 @@ from . import stats
 from . import summary
 from . import table
 from . import tree
+from . import heatmap
 
 _EPILOG = textwrap.dedent(
     """\
@@ -62,6 +63,7 @@ _COMMANDS: List[Command] = [
     parse.ParseCommand(),
     summary.SummaryCommand(),
     stats.StatsCommand(),
+    heatmap.HeatmapCommand(),
 ]
 
 

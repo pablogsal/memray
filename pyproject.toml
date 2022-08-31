@@ -42,6 +42,7 @@ xfail_strict = true
 ignore = [
   "src/memray/reporters/templates/assets/flamegraph.js",
   "src/memray/reporters/templates/assets/table.js",
+  "src/memray/reporters/templates/assets/heatmap.js",
 ]
 
 [tool.mypy]
