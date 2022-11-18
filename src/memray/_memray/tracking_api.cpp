@@ -421,6 +421,7 @@ PythonStackTracker::handleGreenletSwitch(PyObject* from, PyObject* to)
 }
 
 std::atomic<bool> Tracker::d_active = false;
+std::atomic<bool> Tracker::d_should_track_allocations = true;
 std::unique_ptr<Tracker> Tracker::d_instance_owner;
 std::atomic<Tracker*> Tracker::d_instance = nullptr;
 
@@ -783,7 +784,7 @@ Tracker::computeMainTidSkip()
 void
 Tracker::trackAllocationImpl(void* ptr, size_t size, hooks::Allocator func)
 {
-    if (RecursionGuard::isActive || !Tracker::isActive()) {
+    if (RecursionGuard::isActive || !Tracker::isActive() || !d_should_track_allocations) {
         return;
     }
     RecursionGuard guard;
@@ -985,6 +986,17 @@ void
 Tracker::deactivate()
 {
     d_active = false;
+}
+
+
+void
+Tracker::deactivate_allocation_tracking() {
+    d_should_track_allocations = false;
+}
+
+void
+Tracker::activate_allocation_tracking(){
+    d_should_track_allocations = true;
 }
 
 const std::atomic<bool>&

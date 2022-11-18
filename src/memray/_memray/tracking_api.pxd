@@ -25,3 +25,6 @@ cdef extern from "tracking_api.h" namespace "memray::tracking_api":
 
         @staticmethod
         Tracker* getTracker()
+
+        void deactivate_allocation_tracking()
+        void activate_allocation_tracking()

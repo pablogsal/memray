@@ -279,6 +279,8 @@ class Tracker
     static const std::atomic<bool>& isActive();
     static void activate();
     static void deactivate();
+    static void deactivate_allocation_tracking();
+    static void activate_allocation_tracking();
 
   private:
     class BackgroundThread
@@ -309,6 +311,7 @@ class Tracker
     // Data members
     FrameCollection<RawFrame> d_frames;
     static std::atomic<bool> d_active;
+    static std::atomic<bool> d_should_track_allocations;
     static std::unique_ptr<Tracker> d_instance_owner;
     static std::atomic<Tracker*> d_instance;
 

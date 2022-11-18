@@ -430,6 +430,16 @@ cdef class Tracker:
         sys.setprofile(self._previous_profile_func)
         threading.setprofile(self._previous_thread_profile_func)
 
+    def deactivate_allocation_tracking(self):
+        if NativeTracker.getTracker() == NULL:
+            raise RuntimeError("Wops")
+        NativeTracker.getTracker().deactivate_allocation_tracking()
+
+    def activate_allocation_tracking(self):
+        if NativeTracker.getTracker() == NULL:
+            raise RuntimeError("Wops")
+        NativeTracker.getTracker().activate_allocation_tracking()
+
 
 def start_thread_trace(frame, event, arg):
     if event in {"call", "c_call"}:
