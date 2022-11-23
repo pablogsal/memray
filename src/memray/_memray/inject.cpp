@@ -225,9 +225,10 @@ thread_body(void* arg)
 }
 
 }  // unnamed namespace
+}  // namespace memray
 
-__attribute__((visibility("default"))) const char*
-spawn_client(int port)
+extern "C" __attribute__((visibility("default"))) const char*
+memray_spawn_client(int port)
 {
     // Running Python code directly in the point of attaching can lead to
     // crashes as we don't know if the interpreter is ready to execute code.
@@ -235,12 +236,10 @@ spawn_client(int port)
     // or doing some other operation that is not reentrant. Instead, we spawn
     // a new thread that will try to grab the GIL and run the code there.
     pthread_t thread;
-    int rc = pthread_create(&thread, NULL, &thread_body, (void*)(intptr_t)port);
+    int rc = pthread_create(&thread, NULL, &memray::thread_body, (void*)(intptr_t)port);
     if (0 != rc) {
         return "Failed to create thread!";
     }
 
     return nullptr;
 }
-
-}  // namespace memray

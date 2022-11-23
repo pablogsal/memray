@@ -101,7 +101,7 @@ def inject(debugger: str, pid: int, port: int) -> bool:
         "-C",
         "'p (char*)dlerror()'",
         "-C",
-        "'expr (const char*)memray::spawn_client($port)'",
+        "'expr ((const char*(*)(int))&memray_spawn_client)($port)'",
     ]
 
     lldb_cmd = [
@@ -112,13 +112,13 @@ def inject(debugger: str, pid: int, port: int) -> bool:
         "--no-lldbinit",
         "--source-quietly",
         "-o",
-        "p PyMem_Malloc",
+        "p ((void*(*)(size_t))PyMem_Malloc)",
         "-o",
-        "p PyMem_Calloc",
+        "p ((void*(*)(size_t, size_t))PyMem_Calloc)",
         "-o",
-        "p PyMem_Realloc",
+        "p ((void*(*)(void *, size_t))PyMem_Realloc)",
         "-o",
-        "p PyMem_Free",
+        "p ((void(*)(void*))PyMem_Free)",
         "-o",
         f'expr char $libpath[]="{injecter}"',
         "-o",
