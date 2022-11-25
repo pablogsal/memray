@@ -58,6 +58,8 @@ jobs:
         run: |
           echo "CFLAGS=-target arm64-apple-macos11" >> $GITHUB_ENV
           echo "MEMRAY_LIBBACKTRACE_TARGET=arm64-apple-macos11" >> $GITHUB_ENV
+      - name: Setup upterm session
+        uses: lhotari/action-upterm@v1
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.11.2
         env:
