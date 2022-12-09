@@ -2,8 +2,8 @@ Attaching to a running process
 ==============================
 
 Memray allows you to attach to a running process and to observe the allocations
-it performs once you've attached. This doesn't allow you to see where memory
-was allocated before you attached to the process, but it does allow you to
+it performs once you've attached. This **doesn't allow you to see where memory
+was allocated before you attached to the process**, but it does allow you to
 observe or record future allocations. This can be useful if an application is
 continuing to request more memory than you think it should need, and you want
 to figure out why. It can also be useful for observing the allocation patterns
@@ -21,7 +21,7 @@ The general form of the ``attach`` subcommand is:
 
 The only required argument for ``memray attach`` is a process ID to attempt to
 attach to. You must be :ref:`able to attach a debugger <ptrace privs>` to that
-process, and that process must be a Python process capable of running ``import
+process, and that process **must be a Python process capable of running** ``import
 memray`` (that is, the Memray package must be installed in the environment that
 the process is running in).
 
@@ -31,6 +31,14 @@ the name of a capture file to write to with the ``-o`` option, allowing you to
 analyze the captured allocations with any Memray reporter you'd like. You can
 also provide most of the options that ``memray run`` accepts. See :ref:`the
 CLI reference <memray attach CLI reference>` for details.
+
+The status of the attached process on detach depends on the specific options you
+provide.  For instance, attaching to a process with the ``-o`` option will leave
+the process tracking allocations after you detach (which happens immediately),
+but attaching to a process with the default options will start a :doc:`live mode
+TUI <live>` until you detach from the process (which happens when you press
+``q`` in the TUI for example). At that point the process will not be tracking
+allocations anymore.
 
 .. _ptrace privs:
 
@@ -56,6 +64,10 @@ within the container.
    execution attack. Be sure to consider the security implications before you
    choose to grant regular users the ability to attach to processes.
 
+In some cases (like MacOS), the debugger may require you to authenticate with
+your user and password in order to attach to a process. In that case is possible
+that a window will pop up asking for your password or biometric authentication.
+
 Caveats
 -------
 
@@ -65,6 +77,15 @@ there aren't edge cases where this might crash or deadlock the process that
 you're attempting to attach to, depending on what it's doing at the point when
 we attach. We advise only using this as a debugging tool on development
 machines.
+
+There is also a known effect when attaching to a process that has never imported
+the ``threading`` module: In Python 3.9+ the interpreter will assign the wrong
+name to the main thread if threading is later imported by the script. That should
+not have any major effect on the behavior of the program, but is important to Be
+aware of. In older Python versions is possible that the interpreter shows an error
+on exit. This is due to `a known bug
+<https://github.com/python/cpython/issues/81597>`_ that has not been fixed in
+Python 3.8 and earlier.
 
 If you do find some case where ``memray attach`` either doesn't work or causes
 a crash or deadlock, we want to hear about it! Please `file a bug report`_
