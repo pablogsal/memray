@@ -4,8 +4,15 @@ import tempfile
 
 from memray import AllocatorType
 from memray import FileReader
-from memray import MemoryAllocator
+from memray._test import MemoryAllocator
 from memray import Tracker
+
+from .benchmarking.cases import async_tree_base
+from .benchmarking.cases import fannkuch_base
+from .benchmarking.cases import mdp_base
+from .benchmarking.cases import pprint_format_base
+from .benchmarking.cases import raytrace_base
+from .benchmarking.cases import docutils_html_base
 
 MAX_ITERS = 100000
 
@@ -45,50 +52,50 @@ class AllocatorBenchmarks:
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
             for _ in range(MAX_ITERS):
-                self.allocator.malloc(1234)
-                self.allocator.free()
+                if self.allocator.malloc(1234):
+                    self.allocator.free()
 
     def time_posix_memalign(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
             for _ in range(MAX_ITERS):
-                self.allocator.posix_memalign(1234)
-                self.allocator.free()
+                if self.allocator.posix_memalign(1234):
+                    self.allocator.free()
 
     def time_posix_realloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
             for _ in range(MAX_ITERS):
-                self.allocator.posix_memalign(1234)
-                self.allocator.free()
+                if self.allocator.posix_memalign(1234):
+                    self.allocator.free()
 
     def time_calloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
             for _ in range(MAX_ITERS):
-                self.allocator.calloc(1234)
-                self.allocator.free()
+                if self.allocator.calloc(1234):
+                    self.allocator.free()
 
     def time_pvalloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
             for _ in range(MAX_ITERS):
-                self.allocator.pvalloc(1234)
-                self.allocator.free()
+                if self.allocator.pvalloc(1234):
+                    self.allocator.free()
 
     def time_valloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
             for _ in range(MAX_ITERS):
-                self.allocator.valloc(1234)
-                self.allocator.free()
+                if self.allocator.valloc(1234):
+                    self.allocator.free()
 
     def time_realloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
             for _ in range(MAX_ITERS):
-                self.allocator.realloc(1234)
-                self.allocator.free()
+                if self.allocator.realloc(1234):
+                    self.allocator.free()
 
     def time_mmap(self):
         os.unlink(self.tempfile.name)
@@ -145,3 +152,165 @@ class HighWatermarkBenchmarks:
                 merge_threads=False
             )
         )
+
+
+class MacroBenchmarksBase:
+    def setup(self):
+        self.tracker = Tracker("/dev/null")
+
+    def time_async_tree_cpu(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("none")
+
+    def time_async_tree_io(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("io")
+
+    def time_async_tree_memoization(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("memoization")
+
+    def time_async_tree_cpu_io_mixed(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("cpu_io_mixed")
+
+    def time_fannkuch(self):
+        with self.tracker:
+            fannkuch_base.run_benchmark()
+
+    def time_mdp(self):
+        with self.tracker:
+            mdp_base.run_benchmark()
+
+    def time_pprint_format(self):
+        with self.tracker:
+            pprint_format_base.run_benchmark()
+
+    def time_raytrace_base(self):
+        with self.tracker:
+            raytrace_base.run_benchmark()
+
+
+class MacroBenchmarksPythonAllocators:
+    def setup(self):
+        self.tracker = Tracker("/dev/null", trace_python_allocators=True)
+
+    def time_async_tree_cpu(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("none")
+
+    def time_async_tree_io(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("io")
+
+    def time_async_tree_memoization(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("memoization")
+
+    def time_async_tree_cpu_io_mixed(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("cpu_io_mixed")
+
+    def time_fannkuch(self):
+        with self.tracker:
+            fannkuch_base.run_benchmark()
+
+    def time_mdp(self):
+        with self.tracker:
+            mdp_base.run_benchmark()
+
+    def time_pprint_format(self):
+        with self.tracker:
+            pprint_format_base.run_benchmark()
+
+    def time_raytrace(self):
+        with self.tracker:
+            raytrace_base.run_benchmark()
+
+    def time_docutils_html(self):
+        with self.tracker:
+            docutils_html_base.run_benchmark()
+
+
+class MacroBenchmarksPythonNative:
+    def setup(self):
+        self.tracker = Tracker("/dev/null", native_traces=True)
+
+    def time_async_tree_cpu(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("none")
+
+    def time_async_tree_io(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("io")
+
+    def time_async_tree_memoization(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("memoization")
+
+    def time_async_tree_cpu_io_mixed(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("cpu_io_mixed")
+
+    def time_fannkuch(self):
+        with self.tracker:
+            fannkuch_base.run_benchmark()
+
+    def time_mdp(self):
+        with self.tracker:
+            mdp_base.run_benchmark()
+
+    def time_pprint_format(self):
+        with self.tracker:
+            pprint_format_base.run_benchmark()
+
+    def time_raytrace(self):
+        with self.tracker:
+            raytrace_base.run_benchmark()
+
+    def time_docutils_html(self):
+        with self.tracker:
+            docutils_html_base.run_benchmark()
+
+
+class MacroBenchmarksPythonAll:
+    def setup(self):
+        self.tracker = Tracker(
+            "/dev/null", native_traces=True, trace_python_allocators=True
+        )
+
+    def time_async_tree_cpu(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("none")
+
+    def time_async_tree_io(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("io")
+
+    def time_async_tree_memoization(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("memoization")
+
+    def time_async_tree_cpu_io_mixed(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("cpu_io_mixed")
+
+    def time_fannkuch(self):
+        with self.tracker:
+            fannkuch_base.run_benchmark()
+
+    def time_mdp(self):
+        with self.tracker:
+            mdp_base.run_benchmark()
+
+    def time_pprint_format(self):
+        with self.tracker:
+            pprint_format_base.run_benchmark()
+
+    def time_raytrace(self):
+        with self.tracker:
+            raytrace_base.run_benchmark()
+
+    def time_docutils_html(self):
+        with self.tracker:
+            docutils_html_base.run_benchmark()
