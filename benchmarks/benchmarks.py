@@ -4,7 +4,11 @@ import tempfile
 
 from memray import AllocatorType
 from memray import FileReader
-from memray._test import MemoryAllocator
+
+try:
+    from memray._test import MemoryAllocator
+except ImportError:
+    from memray import MemoryAllocator
 from memray import Tracker
 
 from .benchmarking.cases import async_tree_base
@@ -12,9 +16,8 @@ from .benchmarking.cases import fannkuch_base
 from .benchmarking.cases import mdp_base
 from .benchmarking.cases import pprint_format_base
 from .benchmarking.cases import raytrace_base
-from .benchmarking.cases import docutils_html_base
 
-MAX_ITERS = 100000
+LOOPS = 1000
 
 
 class TracebackBenchmarks:
@@ -51,56 +54,56 @@ class AllocatorBenchmarks:
     def time_malloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
-            for _ in range(MAX_ITERS):
+            for _ in range(LOOPS):
                 if self.allocator.malloc(1234):
                     self.allocator.free()
 
     def time_posix_memalign(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
-            for _ in range(MAX_ITERS):
+            for _ in range(LOOPS):
                 if self.allocator.posix_memalign(1234):
                     self.allocator.free()
 
     def time_posix_realloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
-            for _ in range(MAX_ITERS):
+            for _ in range(LOOPS):
                 if self.allocator.posix_memalign(1234):
                     self.allocator.free()
 
     def time_calloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
-            for _ in range(MAX_ITERS):
+            for _ in range(LOOPS):
                 if self.allocator.calloc(1234):
                     self.allocator.free()
 
     def time_pvalloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
-            for _ in range(MAX_ITERS):
+            for _ in range(LOOPS):
                 if self.allocator.pvalloc(1234):
                     self.allocator.free()
 
     def time_valloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
-            for _ in range(MAX_ITERS):
+            for _ in range(LOOPS):
                 if self.allocator.valloc(1234):
                     self.allocator.free()
 
     def time_realloc(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
-            for _ in range(MAX_ITERS):
+            for _ in range(LOOPS):
                 if self.allocator.realloc(1234):
                     self.allocator.free()
 
     def time_mmap(self):
         os.unlink(self.tempfile.name)
         with Tracker(self.tempfile.name):
-            for _ in range(MAX_ITERS):
+            for _ in range(LOOPS):
                 with mmap.mmap(-1, length=2048, access=mmap.ACCESS_WRITE) as mmap_obj:
                     mmap_obj[0:100] = b"a" * 100
 
@@ -112,9 +115,8 @@ class ParserBenchmarks:
         os.unlink(self.tempfile.name)
         self.tracker = Tracker(self.tempfile.name)
         with self.tracker:
-            for _ in range(MAX_ITERS):
-                self.allocator.valloc(1234)
-                self.allocator.free()
+            self.allocator.valloc(1234)
+            self.allocator.free()
 
     def time_end_to_end_parsing(self):
         list(FileReader(self.tempfile.name).get_allocation_records())
@@ -186,7 +188,7 @@ class MacroBenchmarksBase:
         with self.tracker:
             pprint_format_base.run_benchmark()
 
-    def time_raytrace_base(self):
+    def time_raytrace(self):
         with self.tracker:
             raytrace_base.run_benchmark()
 
@@ -227,10 +229,6 @@ class MacroBenchmarksPythonAllocators:
         with self.tracker:
             raytrace_base.run_benchmark()
 
-    def time_docutils_html(self):
-        with self.tracker:
-            docutils_html_base.run_benchmark()
-
 
 class MacroBenchmarksPythonNative:
     def setup(self):
@@ -267,10 +265,6 @@ class MacroBenchmarksPythonNative:
     def time_raytrace(self):
         with self.tracker:
             raytrace_base.run_benchmark()
-
-    def time_docutils_html(self):
-        with self.tracker:
-            docutils_html_base.run_benchmark()
 
 
 class MacroBenchmarksPythonAll:
@@ -311,6 +305,49 @@ class MacroBenchmarksPythonAll:
         with self.tracker:
             raytrace_base.run_benchmark()
 
-    def time_docutils_html(self):
+
+class FileSizeBenchmarks:
+    def setup(self):
+        self.tempfile = tempfile.NamedTemporaryFile()
+        os.unlink(self.tempfile.name)
+        self.tracker = Tracker(self.tempfile.name)
+
+    def track_async_tree_cpu(self):
         with self.tracker:
-            docutils_html_base.run_benchmark()
+            async_tree_base.run_benchmark("none")
+        return os.stat(self.tempfile.name).st_size
+
+    def track_async_tree_io(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("io")
+        return os.stat(self.tempfile.name).st_size
+
+    def track_async_tree_memoization(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("memoization")
+        return os.stat(self.tempfile.name).st_size
+
+    def track_async_tree_cpu_io_mixed(self):
+        with self.tracker:
+            async_tree_base.run_benchmark("cpu_io_mixed")
+        return os.stat(self.tempfile.name).st_size
+
+    def track_fannkuch(self):
+        with self.tracker:
+            fannkuch_base.run_benchmark()
+        return os.stat(self.tempfile.name).st_size
+
+    def track_mdp(self):
+        with self.tracker:
+            mdp_base.run_benchmark()
+        return os.stat(self.tempfile.name).st_size
+
+    def track_pprint_format(self):
+        with self.tracker:
+            pprint_format_base.run_benchmark()
+        return os.stat(self.tempfile.name).st_size
+
+    def track_raytrace(self):
+        with self.tracker:
+            raytrace_base.run_benchmark()
+        return os.stat(self.tempfile.name).st_size

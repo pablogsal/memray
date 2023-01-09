@@ -16,7 +16,7 @@ p = PrettyPrinter()
 
 
 def format(*args, **kwrags):
-    with memray.Tracker("/dev/null", trace_python_allocators=True):
+    with MEMRAY_TRACKER_CODE_HERE:
         p.pformat(*args, **kwrags)
 
 

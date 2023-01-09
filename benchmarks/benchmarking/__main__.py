@@ -12,6 +12,8 @@ from .plot import plot_diff
 
 CASES_DIR = pathlib.Path(__file__).parent / "cases"
 RESULTS_DIR = pathlib.Path(__file__).parent / "results"
+DOCUTILS_DATA = pathlib.Path(__file__).parent / "cases" / "docutils_data" / "docs"
+TELCO_DATA = pathlib.Path(__file__).parent / "cases" / "telco_data" / "telco-bench.b"
 
 
 @dataclasses.dataclass
@@ -106,7 +108,7 @@ class Case:
 
 
 CASES = [
-    Case("docutils", "docutils_html", []),
+    Case("docutils", "docutils_html", [f"--doc_root={DOCUTILS_DATA}"]),
     Case("raytrace", "raytrace", []),
     Case("fannkuch", "fannkuch", []),
     Case("pprint", "pprint_format", []),
@@ -115,6 +117,66 @@ CASES = [
     Case("async_tree_io", "async_tree", ["io"]),
     Case("async_tree_mem", "async_tree", ["memoization"]),
     Case("async_tree_cpu_io", "async_tree", ["cpu_io_mixed"]),
+    Case("deltablue", "deltablue", []),
+    Case("nbody", "nbody", []),
+    Case("nqueens", "nqueens", []),
+    Case("regex_dna", "regex_dna", []),
+    Case("go", "go", []),
+    Case("hexion", "hexion", []),
+    Case("meteor_context", "meteor_context", []),
+    Case("json_dumps", "json_dumps", []),
+    Case("json_loads", "json_loads", []),
+    Case(
+        "picke_pure_python",
+        "pickles",
+        [
+            "pickle",
+            "--pure-python",
+        ],
+    ),
+    Case("picke", "pickles", ["pickle"]),
+    Case(
+        "unpicke_pure_python",
+        "pickles",
+        [
+            "unpickle",
+            "--pure-python",
+        ],
+    ),
+    Case("unpicke", "pickles", ["unpickle"]),
+    Case(
+        "pickle_list_pure_python",
+        "pickles",
+        [
+            "pickle_list",
+            "--pure-python",
+        ],
+    ),
+    Case("pickle_list", "pickles", ["pickle_list"]),
+    Case(
+        "unpickle_list_pure_python",
+        "pickles",
+        [
+            "unpickle_list",
+            "--pure-python",
+        ],
+    ),
+    Case("unpickle_list", "pickles", ["unpickle_list"]),
+    Case(
+        "pickle_dict_pure_python",
+        "pickles",
+        [
+            "pickle_dict",
+            "--pure-python",
+        ],
+    ),
+    Case("pickle_dict", "pickles", ["pickle_dict"]),
+    Case("spectral_norm", "spectral_norm", []),
+    Case("telco", "telco", [f"--doc_root={TELCO_DATA}"]),
+    Case("sqlite_synth", "sqlite_synth", []),
+    Case("regex_v8", "regex_v8", []),
+    Case("regex_effbot", "regex_effbot", []),
+    Case("regex_effbot_bytes", "regex_effbot", ["--force_bytes"]),
 ]
 
 
@@ -126,13 +188,14 @@ class BenchmarkResult:
 
 def gather_benchmarks(cases):
     results = []
-    names = {"", "Python allocators", "Native", "Python allocators + Native"}
-    extensions = {
+    names = ("", "Defaut", "Python allocators", "Native", "Python allocators + Native")
+    extensions = (
         "",
+        "_memray",
         "_memray_python_allocators",
         "_memray_python_native",
         "_memray_python_all",
-    }
+    )
     for name, extension in zip(names, extensions):
         type_results = []
         for case in cases:
@@ -144,15 +207,19 @@ def gather_benchmarks(cases):
 
 
 if __name__ == "__main__":
-    if RESULTS_DIR.exists():
-        for file in RESULTS_DIR.iterdir():
-            file.unlink()
-        RESULTS_DIR.rmdir()
+    # if RESULTS_DIR.exists():
+    #     raise RuntimeError(f"Results directory {RESULTS_DIR} already exists")
 
-    RESULTS_DIR.mkdir(exist_ok=True)
+    # RESULTS_DIR.mkdir(exist_ok=True)
 
-    for case in CASES:
-        case.run()
+    # for case in CASES:
+    #     case.run()
 
     base_results, *memray_results = gather_benchmarks(CASES)
-    plot_diff(memray_results, base_results, "plot.png", "Results")
+    for memray_result in memray_results:
+        plot_diff(
+            memray_result,
+            base_results,
+            f"plot_{memray_result.name}.png",
+            f"Overhead of Memray with {memray_result.name}",
+        )

@@ -361,7 +361,6 @@ def bench_raytrace(loops, width, height, filename):
 
     if filename:
         canvas.write_ppm(filename)
-    return dt
 
 
 def add_cmdline_args(cmd, args):

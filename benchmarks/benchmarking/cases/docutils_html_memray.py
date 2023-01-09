@@ -4,7 +4,6 @@ Convert Docutils' documentation from reStructuredText to <format>.
 
 import contextlib
 from pathlib import Path
-import time
 
 import docutils
 from docutils import core
@@ -12,22 +11,19 @@ import pyperf
 import memray
 import contextlib
 
-try:
-    from docutils.utils.math.math2html import Trace
-except ImportError:
-    pass
-else:
-    Trace.show = lambda message, channel: ...  # don't print to console
+from docutils.utils.math.math2html import Trace
+
+Trace.show = lambda message, channel: ...  # don't print to console
 
 DOC_ROOT = (Path(__file__).parent / "docutils_data" / "docs").resolve()
 
 
 def build_html(doc_root):
-    elapsed = 0
+    elapsed = 0.0
     for file in doc_root.rglob("*.txt"):
         file_contents = file.read_text(encoding="utf-8")
         t0 = pyperf.perf_counter()
-        with contextlib.nullcontext():
+        with MEMRAY_TRACKER_CODE_HERE:
             with contextlib.suppress(docutils.ApplicationError):
                 core.publish_string(
                     source=file_contents,
@@ -51,10 +47,14 @@ def bench_docutils(loops, doc_root):
     return runs_total
 
 
+def add_cmdline_args(cmd, args):
+    cmd.append("--doc_root=%s" % args.doc_root)
+
+
 if __name__ == "__main__":
-    runner = pyperf.Runner()
-
+    runner = pyperf.Runner(add_cmdline_args=add_cmdline_args)
     runner.metadata["description"] = "Render documentation with Docutils"
-    args = runner.parse_args()
+    runner.argparser.add_argument("--doc_root", default=DOC_ROOT)
 
-    runner.bench_time_func("docutils", bench_docutils, DOC_ROOT)
+    args = runner.parse_args()
+    runner.bench_time_func("docutils", bench_docutils, Path(args.doc_root))

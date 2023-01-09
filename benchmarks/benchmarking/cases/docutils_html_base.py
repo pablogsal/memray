@@ -50,8 +50,10 @@ def bench_docutils(loops, doc_root):
         runs_total += build_html(doc_root)
     return runs_total
 
+
 def run_benchmark():
     bench_docutils(1, DOC_ROOT)
+
 
 if __name__ == "__main__":
     run_benchmark()
