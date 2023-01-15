@@ -1,3 +1,4 @@
+import datetime
 import html
 import linecache
 import sys
@@ -7,15 +8,18 @@ from typing import Any
 from typing import Dict
 from typing import Iterable
 from typing import Iterator
-from typing import TextIO
 from typing import Tuple
 from typing import TypeVar
-import datetime
+
+
+from flask import Flask
+from flask import jsonify
+from flask import request
 
 from memray import AllocationRecord
+from memray import FileReader
 from memray import MemorySnapshot
 from memray import Metadata
-from memray import FileReader
 from memray.reporters.frame_tools import StackFrame
 from memray.reporters.frame_tools import is_cpython_internal
 from memray.reporters.frame_tools import is_frame_from_import_system
@@ -166,19 +170,17 @@ class FlameGraphReporter:
         return html_code
 
 
-from flask import Flask, render_template, jsonify, request
-
-
 app = Flask(__name__)
+reader = FileReader("/home/pablogsal/github/memray/lel.bin", report_progress=True)
 
-@app.route('/')
+
+@app.route("/")
 def index():
     show_memory_leaks = False
     merge_threads = True
     temporary_allocation_threshold = -1
 
     try:
-        reader = FileReader("/home/pablogsal/github/memray/lel.bin")
         if reader.metadata.has_native_traces:
             warn_if_not_enough_symbols()
 
@@ -204,28 +206,28 @@ def index():
         memory_records=memory_records,
         native_traces=False,
     )
-    
+
     return reporter.render(
         metadata=reader.metadata,
         show_memory_leaks=show_memory_leaks,
         merge_threads=merge_threads,
     )
 
-@app.route('/time', methods=['POST'])
+
+@app.route("/time", methods=["POST"])
 def time():
     # Get the strings from the request's JSON data
-    string1 = request.json['string1']
-    string2 = request.json['string2']
+    string1 = request.json["string1"]
+    string2 = request.json["string2"]
 
     # Transform the strings to datetime objects
-    time1 = datetime.datetime.strptime(string1, '%Y-%m-%d %H:%M:%S.%f')
-    time2 = datetime.datetime.strptime(string2, '%Y-%m-%d %H:%M:%S.%f')
+    time1 = datetime.datetime.strptime(string1, "%Y-%m-%d %H:%M:%S.%f")
+    time2 = datetime.datetime.strptime(string2, "%Y-%m-%d %H:%M:%S.%f")
 
     # Transform the datetime objects to milliseconds since the epoch
     time1_ms = int(time1.timestamp() * 1000)
     time2_ms = int(time2.timestamp() * 1000)
 
-    reader = FileReader("/home/pablogsal/github/memray/lel.bin")
     records = reader.get_range_allocation_records(time1_ms, time2_ms)
 
     reporter = FlameGraphReporter.from_snapshot(
@@ -233,7 +235,7 @@ def time():
         memory_records=[],
         native_traces=False,
     )
- 
+
     # Return the result as a JSON
     return jsonify(data=reporter.data)
 

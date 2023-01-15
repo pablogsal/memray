@@ -284,8 +284,8 @@ export function initMemoryGraph(memory_records) {
         text: "Time",
       },
       rangeslider: {
-        visible: true
-      }
+        visible: true,
+      },
     },
     yaxis: {
       title: {
@@ -299,38 +299,52 @@ export function initMemoryGraph(memory_records) {
 
   Plotly.newPlot("plot", plot_data, layout, config);
   var debounce = null;
-  document.getElementById('plot').on('plotly_relayout', function (event) {
+  document.getElementById("plot").on("plotly_relayout", function (event) {
     if (debounce) {
       clearTimeout(debounce);
     }
 
     debounce = setTimeout(function () {
       // Show the loading animation
+      var request_data = {};
+      if (event.hasOwnProperty("xaxis.range[0]")) {
+        request_data = {
+          string1: event["xaxis.range[0]"],
+          string2: event["xaxis.range[1]"],
+        };
+      } else if (event.hasOwnProperty("xaxis.range")) {
+        request_data = {
+          string1: event["xaxis.range"][0],
+          string2: event["xaxis.range"][1],
+        };
+      } else {
+        return;
+      }
+
       document.getElementById("loading").style.display = "block";
       document.getElementById("overlay").style.display = "block";
-      const request_data = { string1: event["xaxis.range"][0], string2: event["xaxis.range"][1] };
-      fetch('http://127.0.0.1:5000/time', {
-        method: 'POST',
+      fetch("http://127.0.0.1:5000/time", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json'
+          "Content-Type": "application/json",
         },
-        body: JSON.stringify(request_data)
+        body: JSON.stringify(request_data),
       })
-        .then(response => response.json())
-        .then(the_data => {
-          drawChart(the_data["data"]);
+        .then((response) => response.json())
+        .then((the_data) => {
+          data = the_data["data"];
+          drawChart(data);
           // Hide the loading animation
           document.getElementById("loading").style.display = "none";
           document.getElementById("overlay").style.display = "none";
         })
-        .catch(error => {
+        .catch((error) => {
           console.error("Error rendering new data!");
           console.error(error);
           // Hide the loading animation
           document.getElementById("loading").style.display = "none";
           document.getElementById("overlay").style.display = "none";
         });
-
     }, 500);
   });
 }
