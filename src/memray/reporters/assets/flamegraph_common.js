@@ -1,5 +1,4 @@
 import {
-  debounced,
   filterChildThreads,
   filterUninteresting,
   filterImportSystem,
@@ -11,6 +10,8 @@ import {
 const FILTER_UNINTERESTING = "filter_uninteresting";
 const FILTER_IMPORT_SYSTEM = "filter_import_system";
 const FILTER_THREAD = "filter_thread";
+
+var chart = null;
 let filteredChart = new FilteredChart();
 
 // For navigable #[integer] fragments
@@ -33,7 +34,7 @@ function onClick(d) {
   updateZoomButtom();
 }
 
-function handleFragments() {
+export function handleFragments() {
   const id = getCurrentId();
   const elem = chart.findById(id);
   if (!elem) return;
@@ -43,12 +44,12 @@ function handleFragments() {
 }
 
 // For the invert button
-function onInvert() {
+export function onInvert() {
   chart.inverted(!chart.inverted());
   chart.resetZoom(); // calls onClick
 }
 
-function onResetZoom() {
+export function onResetZoom() {
   chart.resetZoom(); // calls onClick
 }
 
@@ -67,7 +68,7 @@ class FilteredChart {
     this.filters[name] = func;
   }
   unRegisterFilter(name) {
-    delete this.filters[name];
+    delete this.filters[name];;
   }
 
   drawChart(data) {
@@ -81,16 +82,16 @@ class FilteredChart {
   }
 }
 
-function onResize() {
+export function onResize() {
   const width = getChartWidth();
   // Update element widths
   const svg = document.getElementById("chart").children[0];
   svg.setAttribute("width", width);
   chart.width(width);
-  filteredChart.drawChart();
+  filteredChart.drawChart(data);
 }
 
-function onFilterThread() {
+export function onFilterThread() {
   const thread_id = this.dataset.thread;
   if (thread_id === "-0x1") {
     // Reset
@@ -108,7 +109,7 @@ function onFilterThread() {
   filteredChart.drawChart(data);
 }
 
-function onFilterUninteresting() {
+export function onFilterUninteresting() {
   if (this.hideUninterestingFrames === undefined) {
     // Hide boring frames by default
     this.hideUninterestingFrames = true;
@@ -126,7 +127,7 @@ function onFilterUninteresting() {
   filteredChart.drawChart(data);
 }
 
-function onFilterImportSystem() {
+export function onFilterImportSystem() {
   if (this.hideImportSystemFrames === undefined) {
     this.hideImportSystemFrames = true;
   }
@@ -174,7 +175,7 @@ function getTooltip() {
 }
 
 // Our custom color mapping logic
-function decimalHash(string) {
+export function decimalHash(string) {
   let sum = 0;
   for (let i = 0; i < string.length; i++)
     sum += ((i + 1) * string.codePointAt(i)) / (1 << 8);
@@ -213,7 +214,7 @@ function memrayColorMapper(d, originalColor) {
 }
 
 // Show the 'Threads' dropdown if we have thread data, and populate it
-function initThreadsDropdown(data, merge_threads) {
+export function initThreadsDropdown(data, merge_threads) {
   if (merge_threads === true) {
     return;
   }
@@ -234,7 +235,7 @@ function initThreadsDropdown(data, merge_threads) {
   }
 }
 
-function drawChart(chart_data) {
+export function drawChart(chart_data) {
   chart = flamegraph()
     .width(getChartWidth())
     // smooth transitions
@@ -254,143 +255,3 @@ function drawChart(chart_data) {
   // Render the chart
   d3.select("#chart").datum(chart_data).call(chart);
 }
-
-export function initMemoryGraph(memory_records) {
-  const time = memory_records.map((a) => new Date(a[0]));
-  const resident_size = memory_records.map((a) => a[1]);
-  const heap_size = memory_records.map((a) => a[2]);
-
-  var resident_size_plot = {
-    x: time,
-    y: resident_size,
-    mode: "lines",
-    name: "Resident size",
-  };
-
-  var heap_size_plot = {
-    x: time,
-    y: heap_size,
-    mode: "lines",
-    name: "Heap size",
-  };
-
-  var plot_data = [resident_size_plot, heap_size_plot];
-  var config = {
-    responsive: true,
-  };
-  var layout = {
-    xaxis: {
-      title: {
-        text: "Time",
-      },
-      rangeslider: {
-        visible: true,
-      },
-    },
-    yaxis: {
-      title: {
-        text: "Memory Size",
-      },
-      tickformat: ".4~s",
-      exponentformat: "B",
-      ticksuffix: "B",
-    },
-  };
-
-  Plotly.newPlot("plot", plot_data, layout, config);
-  var debounce = null;
-  document.getElementById("plot").on("plotly_relayout", function (event) {
-    if (debounce) {
-      clearTimeout(debounce);
-    }
-
-    debounce = setTimeout(function () {
-      // Show the loading animation
-      var request_data = {};
-      if (event.hasOwnProperty("xaxis.range[0]")) {
-        request_data = {
-          string1: event["xaxis.range[0]"],
-          string2: event["xaxis.range[1]"],
-        };
-      } else if (event.hasOwnProperty("xaxis.range")) {
-        request_data = {
-          string1: event["xaxis.range"][0],
-          string2: event["xaxis.range"][1],
-        };
-      } else {
-        return;
-      }
-
-      document.getElementById("loading").style.display = "block";
-      document.getElementById("overlay").style.display = "block";
-      fetch("http://127.0.0.1:5000/time", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(request_data),
-      })
-        .then((response) => response.json())
-        .then((the_data) => {
-          data = the_data["data"];
-          drawChart(data);
-          // Hide the loading animation
-          document.getElementById("loading").style.display = "none";
-          document.getElementById("overlay").style.display = "none";
-        })
-        .catch((error) => {
-          console.error("Error rendering new data!");
-          console.error(error);
-          // Hide the loading animation
-          document.getElementById("loading").style.display = "none";
-          document.getElementById("overlay").style.display = "none";
-        });
-    }, 500);
-  });
-}
-
-// Main entrypoint
-function main() {
-  initThreadsDropdown(data, merge_threads);
-
-  initMemoryGraph(memory_records);
-
-  // Create the flamegraph renderer
-  drawChart(data);
-
-  // Set zoom to correct element
-  if (location.hash) {
-    handleFragments();
-  }
-
-  // Setup event handlers
-  document.getElementById("invertButton").onclick = onInvert;
-  document.getElementById("resetZoomButton").onclick = onResetZoom;
-  document.getElementById("resetThreadFilterItem").onclick = onFilterThread;
-  let hideUninterestingCheckBox = document.getElementById("hideUninteresting");
-  hideUninterestingCheckBox.onclick = onFilterUninteresting.bind(this);
-  let hideImportSystemCheckBox = document.getElementById("hideImportSystem");
-  hideImportSystemCheckBox.onclick = onFilterImportSystem.bind(this);
-  // Enable filtering by default
-  onFilterUninteresting.bind(this)();
-
-  document.onkeyup = (event) => {
-    if (event.code == "Escape") {
-      onResetZoom();
-    }
-  };
-  document.getElementById("searchTerm").addEventListener("input", () => {
-    const termElement = document.getElementById("searchTerm");
-    chart.search(termElement.value);
-  });
-
-  window.addEventListener("popstate", handleFragments);
-  window.addEventListener("resize", debounced(onResize));
-
-  // Enable tooltips
-  $('[data-toggle-second="tooltip"]').tooltip();
-  $('[data-toggle="tooltip"]').tooltip();
-}
-
-var chart = null;
-document.addEventListener("DOMContentLoaded", main);

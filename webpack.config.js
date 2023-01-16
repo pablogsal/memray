@@ -4,8 +4,9 @@ const TerserPlugin = require("terser-webpack-plugin");
 module.exports = {
   mode: "production",
   entry: {
+    flamegraph_common: "./src/memray/reporters/assets/flamegraph_common.js",
     flamegraph: "./src/memray/reporters/assets/flamegraph.js",
-    flamegraph2: "./src/memray/reporters/assets/flamegraph2.js",
+    serve_flamegraph: "./src/memray/reporters/assets/serve_flamegraph.js",
     table: "./src/memray/reporters/assets/table.js",
   },
   output: {
