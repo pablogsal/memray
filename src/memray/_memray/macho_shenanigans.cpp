@@ -338,7 +338,7 @@ patch_symbols_in_all_shared_objects(bool restore_original, std::set<std::string>
         const struct mach_header* header = _dyld_get_image_header(i);
         intptr_t slide = _dyld_get_image_vmaddr_slide(i);
         const char* image_name = _dyld_get_image_name(i);
-        if (strstr(image_name, "libdyld.dylib") || strstr(image_name, "/usr/lib/system/")) {
+        if ( strstr(image_name, "/System/Library/PrivateFrameworks") || strstr(image_name, "libdyld.dylib") || strstr(image_name, "/usr/lib/system/")) {
             LOG(DEBUG) << "Skipping patching image: " << image_name;
             continue;
         }
