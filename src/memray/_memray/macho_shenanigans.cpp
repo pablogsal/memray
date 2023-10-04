@@ -311,7 +311,9 @@ patch_symbols_in_shared_object(
                 }
                 LOG(DEBUG) << "Patching section " << i << " (" << section->segname << ":"
                            << section->sectname << ")";
-                patch_stubs(section, slide, dyninfo_table, restore_original);
+                if (strstr(image_name, "/usr/lib/")) {
+                    patch_stubs(section, slide, dyninfo_table, restore_original);
+                }
             } else {
                 if (section_type != S_LAZY_SYMBOL_POINTERS && section_type != S_NON_LAZY_SYMBOL_POINTERS)
                 {
@@ -338,7 +340,7 @@ patch_symbols_in_all_shared_objects(bool restore_original, std::set<std::string>
         const struct mach_header* header = _dyld_get_image_header(i);
         intptr_t slide = _dyld_get_image_vmaddr_slide(i);
         const char* image_name = _dyld_get_image_name(i);
-        if ( strstr(image_name, "/System/Library/PrivateFrameworks") || strstr(image_name, "libdyld.dylib") || strstr(image_name, "/usr/lib/system/")) {
+        if (strstr(image_name, "libdyld.dylib") || strstr(image_name, "/usr/lib/system/")) {
             LOG(DEBUG) << "Skipping patching image: " << image_name;
             continue;
         }
