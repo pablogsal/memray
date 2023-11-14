@@ -870,7 +870,7 @@ class TestTreeSubCommand:
         )
 
         # THEN
-        assert "frames hidden" in output
+        assert "Biggest 10 allocations" in output
 
     def test_temporary_allocations_tree(self, tmp_path, simple_test_file):
         # GIVEN
