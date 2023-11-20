@@ -13,6 +13,7 @@ from typing import Tuple
 
 from textual import events
 from textual.app import App
+from textual import log
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Grid
@@ -26,6 +27,10 @@ from textual.widgets import TextArea
 from textual.widgets import Tree
 from textual.widgets._text_area import Edit
 from textual.widgets.tree import TreeNode
+from textual.containers import Horizontal, Vertical
+from textual.reactive import reactive
+from textual.widget import Widget
+
 
 from memray import AllocationRecord
 from memray._memray import size_fmt
@@ -65,14 +70,39 @@ class FrozenTextArea(TextArea):
         self.app.pop_screen()
 
 
-class FrameDetailScreen(ModalScreen[bool]):
+class FrameDetailScreen(Widget):
     """A screen that displays information about a frame"""
 
-    def __init__(self, frame: Frame):
-        super().__init__()
-        self.frame = frame
+    frame = reactive(None)
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.is_mounted = False
+    
+    def on_mount(self) -> None:
+        self.is_mounted = True
+
+    def watch_frame(self) -> None:
+        if self.frame is None or not self.is_mounted:
+            return
+
+        function, file, line = self.frame.location
+        delta = 3
+        lines = linecache.getlines(file)[line - delta : line + delta]
+ 
+        self.query_one("#function", Label).update(f":compass: Function: {function}")
+        self.query_one("#location", Label).update(f":compass: Location: {file}:{line}")
+        self.query_one("#allocs", Label).update(f":floppy_disk: Allocations: {self.frame.n_allocations}")
+        self.query_one("#size", Label).update(f":package: Size: {size_fmt(self.frame.value)}")
+        self.query_one("#thread", Label).update(f":thread: Thread: {self.frame.thread_id}")
+        text = self.query_one("#textarea", FrozenTextArea)
+        text.text = "\n".join(lines)
+        text.select_line(delta + 1)
+        text.show_line_numbers = False
 
     def compose(self) -> ComposeResult:
+        if self.frame is None:
+            return
         function, file, line = self.frame.location
         delta = 3
         lines = linecache.getlines(file)[line - delta : line + delta]
@@ -84,22 +114,24 @@ class FrameDetailScreen(ModalScreen[bool]):
         yield Grid(
             text,
             ListView(
-                ListItem(Label(f":compass: Function: {function}")),
-                ListItem(Label(f":compass: Location: {file}:{line}")),
+                ListItem(Label(f":compass: Function: {function}", id="function")),
+                ListItem(Label(f":compass: Location: {file}:{line}", id="location")),
                 ListItem(
-                    Label(f":floppy_disk: Allocations: {self.frame.n_allocations}")
+                    Label(f":floppy_disk: Allocations: {self.frame.n_allocations}", id="allocs")
                 ),
-                ListItem(Label(f":package: Size: {size_fmt(self.frame.value)}")),
-                ListItem(Label(f":thread: Thread: {self.frame.thread_id}")),
-                ListItem(Label("Press any key to go back")),
+                ListItem(Label(f":package: Size: {size_fmt(self.frame.value)}", id="size")),
+                ListItem(Label(f":thread: Thread: {self.frame.thread_id}", id="thread")),
             ),
             id="node",
         )
-        yield Footer()
 
-    def on_key(self, event: events.Key) -> None:
-        self.dismiss(True)
-
+class FrameTree(Tree[Frame]):
+    def on_tree_node_selected(self, node: Tree.NodeSelected) -> None:
+        self.app.query_one(FrameDetailScreen).frame = node.node.data
+    
+    def on_tree_node_highlighted(self, node: Tree.NodeHighlighted) -> None:
+        self.app.query_one(FrameDetailScreen).frame = node.node.data
+    
 
 class TreeApp(App[None]):
     BINDINGS = [
@@ -114,24 +146,14 @@ class TreeApp(App[None]):
     ]
 
     DEFAULT_CSS = """
-        FrameDetailScreen {
-            align: center middle;
-        }
-
         Label {
             padding: 1 3;
-        }
-
-        #textarea {
-            height: 20;
         }
 
         #node {
             grid-size: 1 2;
             grid-gutter: 1 2;
             padding: 0 1;
-            width: 120;
-            height: 40;
             border: thick $background 80%;
             background: $surface;
         }
@@ -155,11 +177,18 @@ class TreeApp(App[None]):
         tree = self.create_tree(self.data)
         tree.root.expand()
         self.expand_bigger_nodes(tree.root)
-        yield tree
+        yield Horizontal(
+            Vertical(
+                tree
+            ),
+            Vertical(
+                FrameDetailScreen()
+            ),
+        )
         yield Footer()
 
     def action_expand_linear_group(self) -> None:
-        tree = self.query_one(Tree)
+        tree = self.query_one(FrameTree)
         assert tree
         current_node = tree.cursor_node
         while current_node:
@@ -168,20 +197,15 @@ class TreeApp(App[None]):
                 break
             current_node = current_node.children[0]
 
-    def action_show_information(self) -> None:
-        tree: Tree[Frame] = self.query_one(Tree)
-        if tree.cursor_node is None or tree.cursor_node.data is None:
-            return
-        self.push_screen(FrameDetailScreen(tree.cursor_node.data))
 
     def create_tree(
         self,
         node: Frame,
         parent_tree: Optional[TreeNode[Frame]] = None,
-        root_node: Optional[Tree[Frame]] = None,
-    ) -> Tree[Frame]:
+        root_node: Optional[FrameTree] = None,
+    ) -> FrameTree:
         if node.value == 0:
-            return Tree("<No allocations>")
+            return FrameTree("<No allocations>")
         value = node.value
         root_data = root_node.root.data if root_node else node
         assert root_data is not None
@@ -205,7 +229,7 @@ class TreeApp(App[None]):
         if self.filter is not None:
             children = tuple(filter(self.filter, children))
         if root_node is None:
-            root_node = Tree(frame_text, data=node)
+            root_node = FrameTree(frame_text, data=node)
             new_tree = root_node.root
         else:
             assert parent_tree is not None
@@ -217,7 +241,7 @@ class TreeApp(App[None]):
         return root_node
 
     def action_hide_import_system(self) -> None:
-        self.query_one(Tree).remove()
+        self.query_one(FrameTree).remove()
         if self.filter is None:
 
             def _filter(node: Frame) -> bool:
@@ -229,7 +253,7 @@ class TreeApp(App[None]):
         self.remount_tree()
 
     def remount_tree(self) -> None:
-        new_tree: Tree[Frame] = self.create_tree(self.data)
+        new_tree: FrameTree = self.create_tree(self.data)
         self.mount(new_tree)
         new_tree.focus()
         new_tree.root.expand()
