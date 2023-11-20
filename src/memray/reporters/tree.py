@@ -66,10 +66,6 @@ class FrozenTextArea(TextArea):
         super().__init__(*args, **kwargs)
         self.cursor_blink = False
 
-    def edit(self, edit: Edit) -> Any:
-        self.app.pop_screen()
-
-
 class FrameDetailScreen(Widget):
     """A screen that displays information about a frame"""
 
@@ -87,7 +83,8 @@ class FrameDetailScreen(Widget):
             return
 
         function, file, line = self.frame.location
-        delta = 3
+        text = self.query_one("#textarea", FrozenTextArea)
+        delta = text.size.height // 2
         lines = linecache.getlines(file)[line - delta : line + delta]
  
         self.query_one("#function", Label).update(f":compass: Function: {function}")
@@ -95,9 +92,8 @@ class FrameDetailScreen(Widget):
         self.query_one("#allocs", Label).update(f":floppy_disk: Allocations: {self.frame.n_allocations}")
         self.query_one("#size", Label).update(f":package: Size: {size_fmt(self.frame.value)}")
         self.query_one("#thread", Label).update(f":thread: Thread: {self.frame.thread_id}")
-        text = self.query_one("#textarea", FrozenTextArea)
-        text.text = "\n".join(lines)
-        text.select_line(delta + 1)
+        text.text = "\n".join(tuple(line.rstrip() for line in lines))
+        text.select_line((delta-1))
         text.show_line_numbers = False
 
     def compose(self) -> ComposeResult:
@@ -136,9 +132,6 @@ class FrameTree(Tree[Frame]):
 class TreeApp(App[None]):
     BINDINGS = [
         Binding(key="q", action="quit", description="Quit the app"),
-        Binding(
-            key="s", action="show_information", description="Show node information"
-        ),
         Binding(key="i", action="hide_import_system", description="Hide import system"),
         Binding(
             key="e", action="expand_linear_group", description="Expand linear group"
