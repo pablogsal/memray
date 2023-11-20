@@ -114,7 +114,7 @@ class TreeApp(App[None]):
     ]
 
     DEFAULT_CSS = """
-        QuitScreen {
+        FrameDetailScreen {
             align: center middle;
         }
 
@@ -152,7 +152,6 @@ class TreeApp(App[None]):
         self.expand_bigger_nodes(biggest_child)
 
     def compose(self) -> ComposeResult:
-        yield Header()
         tree = self.create_tree(self.data)
         tree.root.expand()
         self.expand_bigger_nodes(tree.root)
