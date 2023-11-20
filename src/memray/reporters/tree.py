@@ -19,7 +19,6 @@ from textual.containers import Grid
 from textual.dom import DOMNode
 from textual.screen import ModalScreen
 from textual.widgets import Footer
-from textual.widgets import Header
 from textual.widgets import Label
 from textual.widgets import ListItem
 from textual.widgets import ListView
@@ -33,6 +32,7 @@ from memray._memray import size_fmt
 from memray.reporters.frame_tools import is_cpython_internal
 from memray.reporters.frame_tools import is_frame_from_import_system
 from memray.reporters.frame_tools import is_frame_interesting
+from memray.reporters.tui import _filename_to_module_name
 
 MAX_STACKS = int(sys.getrecursionlimit() // 2.5)
 
@@ -196,7 +196,9 @@ class TreeApp(App[None]):
                 size=size_str,
                 info_color=_info_color(node, root_data),
                 function=function,
-                code_position=f"{file}:{lineno}" if lineno != 0 else file,
+                code_position=f"{_filename_to_module_name(file)}:{lineno}"
+                if lineno != 0
+                else file,
             )
         )
         children = tuple(node.children.values())
