@@ -130,7 +130,7 @@ class TreeApp(App[None]):
             grid-size: 1 2;
             grid-gutter: 1 2;
             padding: 0 1;
-            width: 80;
+            width: 120;
             height: 40;
             border: thick $background 80%;
             background: $surface;
