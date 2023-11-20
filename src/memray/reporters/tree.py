@@ -16,7 +16,7 @@ from textual.app import App
 from textual import log
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Grid
+from textual.containers import Grid, Container
 from textual.dom import DOMNode
 from textual.screen import ModalScreen
 from textual.widgets import Footer
@@ -172,7 +172,7 @@ class TreeApp(App[None]):
         self.expand_bigger_nodes(tree.root)
         yield Horizontal(
             Vertical(
-                tree
+                Container(tree, id="treec"),
             ),
             Vertical(
                 FrameDetailScreen()
@@ -234,7 +234,7 @@ class TreeApp(App[None]):
         return root_node
 
     def action_hide_import_system(self) -> None:
-        self.query_one(FrameTree).remove()
+        c = self.query_one("#treec", Container)
         if self.filter is None:
 
             def _filter(node: Frame) -> bool:
@@ -243,14 +243,13 @@ class TreeApp(App[None]):
             self.filter = _filter
         else:
             self.filter = None
-        self.remount_tree()
-
-    def remount_tree(self) -> None:
         new_tree: FrameTree = self.create_tree(self.data)
-        self.mount(new_tree)
         new_tree.focus()
         new_tree.root.expand()
         self.expand_bigger_nodes(new_tree.root)
+
+        c.remove_children()
+        c.mount(new_tree)
 
     @property
     def namespace_bindings(self) -> Dict[str, Tuple[DOMNode, Binding]]:
