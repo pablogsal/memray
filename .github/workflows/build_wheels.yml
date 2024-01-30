@@ -78,7 +78,7 @@ jobs:
         run: |
           echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.16.2
+        uses: pypa/cibuildwheel@v2.16.5
         env:
           CIBW_BUILD: "cp3{7..12}-${{ matrix.wheel_type }}"
           CIBW_ARCHS_LINUX: auto aarch64
@@ -111,7 +111,7 @@ jobs:
         run: |
           tar zxvf dist/*.tar.gz --strip-components=1
       - name: Build wheels
-        uses: pypa/cibuildwheel@v2.16.2
+        uses: pypa/cibuildwheel@v2.16.5
         env:
           CIBW_BUILD: "cp3{8..12}-*"
           CIBW_PRERELEASE_PYTHONS: True
