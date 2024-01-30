@@ -93,13 +93,11 @@ jobs:
 
   build_macosx_wheels:
     needs: [build_sdist]
-    name: macosx_${{ matrix.cibw_arch }} wheels
-    runs-on: macos-11
+    name: macosx_${{ matrix.os }} wheels
+    runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
-        cibw_arch: ["x86_64", "arm64"]
-
+        os: [macos-11, macos-14]
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -112,16 +110,10 @@ jobs:
       - name: Extract sdist
         run: |
           tar zxvf dist/*.tar.gz --strip-components=1
-      - name: Sets env vars for compilation
-        if: matrix.cibw_arch == 'arm64'
-        run: |
-          echo "CFLAGS=-target arm64-apple-macos11" >> $GITHUB_ENV
-          echo "MEMRAY_LIBBACKTRACE_TARGET=arm64-apple-macos11" >> $GITHUB_ENV
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.16.2
         env:
           CIBW_BUILD: "cp3{8..12}-*"
-          CIBW_ARCHS_MACOS: ${{ matrix.cibw_arch }}
           CIBW_PRERELEASE_PYTHONS: True
           CIBW_TEST_EXTRAS: test
           CIBW_TEST_COMMAND: pytest {package}/tests
@@ -130,7 +122,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: macosx_${{ matrix.cibw_arch }}-wheels
+          name: macosx_${{ matrix.os }}-wheels
           path: ./wheelhouse/*.whl
 
   build_and_test_wheels:
