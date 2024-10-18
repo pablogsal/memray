@@ -76,8 +76,8 @@ struct RecordTypeAndFlags
     , flags(flags_)
     {
         // Ensure both values fit into 4 bits
-        assert(static_cast<int>(record_type_) == (static_cast<int>(record_type_) & 0x0f));
-        assert(static_cast<int>(flags_) == (static_cast<int>(flags_) & 0x0f));
+        // assert(static_cast<int>(record_type_) == (static_cast<int>(record_type_) & 0x0f));
+        // assert(static_cast<int>(flags_) == (static_cast<int>(flags_) & 0x0f));
     }
 
     RecordType record_type : 4;

@@ -1,0 +1,58 @@
+GNU gdb (GDB) 15.2
+Copyright (C) 2024 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-pc-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<https://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from python...
+(No debugging symbols found in python)
+[?2004h(gdb) r
+[?2004lStarting program: /home/pablogsal/github/memray/.venv/bin/python -m memray parse blech.bin
+
+This GDB supports auto-downloading debuginfo from the following URLs:
+  <https://debuginfod.archlinux.org>
+[?2004hEnable debuginfod for this session? (y or [n]) [?2004l[?2004h(gdb) q
+[?2004l[?2004hA debugging session is active.
+
+	Inferior 1 [process 2062797] will be killed.
+
+Quit anyway? (y or n) qq
+[?2004lPlease answer y or n.
+[?2004hA debugging session is active.
+
+	Inferior 1 [process 2062797] will be killed.
+
+Quit anyway? (y or n) 
+[?2004lPlease answer y or n.
+[?2004hA debugging session is active.
+
+	Inferior 1 [process 2062797] will be killed.
+
+Quit anyway? (y or n) [?2004l[?2004h(gdb) [?2004l[?2004h(gdb) [?2004l[?2004h(gdb) q
+[?2004l[?2004hA debugging session is active.
+
+	Inferior 1 [process 2062797] will be killed.
+
+Quit anyway? (y or n) [?2004l[?2004h(gdb) [?2004l[?2004h(gdb) quit
+[?2004l[?2004hA debugging session is active.
+
+	Inferior 1 [process 2062797] will be killed.
+
+Quit anyway? (y or n) q
+[?2004l
+Please answer y or n.
+[?2004hA debugging session is active.
+
+	Inferior 1 [process 2062797] will be killed.
+
+Quit anyway? (y or n) y
+[?2004l

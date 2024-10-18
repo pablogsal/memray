@@ -3,6 +3,12 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
+#if PY_VERSION_HEX > 0x030C0000
+#define Py_BUILD_CORE
+#include "internal/pycore_object.h"
+#undef Py_BUILD_CORE
+#endif
+
 #include "frameobject.h"
 
 namespace memray::compat {
@@ -89,5 +95,27 @@ threadStateGetInterpreter(PyThreadState* tstate)
 
 void
 setprofileAllThreads(Py_tracefunc func, PyObject* arg);
+
+typedef int (*refTracer)(PyObject*, int event, void *data);
+
+inline int 
+refTracerSetTracer(refTracer tracer, void *data) {
+#if PY_VERSION_HEX >= 0x030D0000
+    return PyRefTracer_SetTracer(reinterpret_cast<PyRefTracer>(tracer), data);
+#else
+    return nullptr;
+#endif
+}
+
+inline size_t
+pyType_PreHeaderSize(PyTypeObject *tp)
+{
+#if PY_VERSION_HEX >= 0x030C0000
+    return _PyType_PreHeaderSize(tp);
+#else
+    return sizeof(PyGC_Head);
+#endif
+
+}
 
 }  // namespace memray::compat

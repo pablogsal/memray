@@ -129,6 +129,8 @@ enum class Allocator : unsigned char {
     PYMALLOC_CALLOC = 13,
     PYMALLOC_REALLOC = 14,
     PYMALLOC_FREE = 15,
+    OBJECT_INIT = 16,
+    OBJECT_DESTROY = 17,
 };
 
 enum class AllocatorKind {
@@ -213,5 +215,9 @@ void*
 pymalloc_calloc(void* ctx, size_t nelem, size_t size) noexcept;
 void
 pymalloc_free(void* ctx, void* ptr) noexcept;
+
+int
+pyreftracer(PyObject*, int event, void *data) noexcept;
+
 
 }  // namespace memray::intercept

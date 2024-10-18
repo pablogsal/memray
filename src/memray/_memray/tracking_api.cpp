@@ -546,12 +546,14 @@ Tracker::Tracker(
         bool native_traces,
         unsigned int memory_interval,
         bool follow_fork,
-        bool trace_python_allocators)
+        bool trace_python_allocators,
+        bool reference_tracking)
 : d_writer(std::move(record_writer))
 , d_unwind_native_frames(native_traces)
 , d_memory_interval(memory_interval)
 , d_follow_fork(follow_fork)
 , d_trace_python_allocators(trace_python_allocators)
+, d_reference_tracking(reference_tracking)
 {
     static std::once_flag once;
     call_once(once, [] {
@@ -581,6 +583,9 @@ Tracker::Tracker(
 
     PythonStackTracker::s_native_tracking_enabled = native_traces;
     PythonStackTracker::installProfileHooks();
+    if (d_reference_tracking) {
+        registerReferenceTrackingHooks();
+    }
     if (d_trace_python_allocators) {
         registerPymallocHooks();
     }
@@ -607,6 +612,11 @@ Tracker::~Tracker()
         PyGILState_STATE gstate;
         gstate = PyGILState_Ensure();
 
+        if (d_reference_tracking) {
+            std::scoped_lock<std::mutex> lock(*s_mutex);
+            unregisterReferenceTrackingHooks();
+        }
+
         if (d_trace_python_allocators) {
             std::scoped_lock<std::mutex> lock(*s_mutex);
             unregisterPymallocHooks();
@@ -618,6 +628,7 @@ Tracker::~Tracker()
     }
 
     std::scoped_lock<std::mutex> lock(*s_mutex);
+    d_tracked_objects.clear();
     d_writer->writeTrailer();
     d_writer->writeHeader(true);
     d_writer.reset();
@@ -800,7 +811,8 @@ Tracker::childFork()
             old_tracker->d_unwind_native_frames,
             old_tracker->d_memory_interval,
             old_tracker->d_follow_fork,
-            old_tracker->d_trace_python_allocators));
+            old_tracker->d_trace_python_allocators,
+            old_tracker->d_reference_tracking));
     Tracker::activate();
     RecursionGuard::isActive = false;
 }
@@ -873,6 +885,28 @@ Tracker::trackDeallocationImpl(void* ptr, size_t size, hooks::Allocator func)
     if (!d_writer->writeThreadSpecificRecord(thread_id(), record)) {
         std::cerr << "Failed to write output, deactivating tracking" << std::endl;
         deactivate();
+    }
+    if(Tracker::d_reference_tracking) {
+        if(d_tracked_ptrs.find((uintptr_t)ptr) != d_tracked_ptrs.end()) {
+            size_t presize = d_tracked_ptrs[(uintptr_t)ptr];
+            d_tracked_ptrs.erase((uintptr_t)ptr);
+            d_tracked_objects.erase((PyObject*)((char *)ptr + presize));
+        }
+    }
+}
+
+void
+Tracker::trackObjectImpl(PyObject* obj, int event, const std::optional<NativeTrace>& trace) {
+    if (event == 0) {
+        PyTypeObject *type = Py_TYPE(obj);
+        const size_t presize = compat::pyType_PreHeaderSize(type);
+        uintptr_t ptr = (uintptr_t)((char *)obj - presize);
+        d_tracked_ptrs[(uintptr_t)ptr] = presize;
+        d_tracked_objects.emplace(obj);
+        Tracker::trackAllocationImpl(obj, 1, hooks::Allocator::OBJECT_INIT, trace);
+    } else {
+        d_tracked_objects.erase(obj);
+        Tracker::trackDeallocation(obj, 0, hooks::Allocator::OBJECT_DESTROY);
     }
 }
 
@@ -992,6 +1026,39 @@ Tracker::dropCachedThreadName()
     d_cached_thread_names.erase((uint64_t)(pthread_self()));
 }
 
+void
+Tracker::registerReferenceTrackingHooks() const noexcept
+{
+    compat::refTracerSetTracer(intercept::pyreftracer, nullptr);
+}
+
+void
+Tracker::unregisterReferenceTrackingHooks() const noexcept
+{
+    compat::refTracerSetTracer(nullptr, nullptr);
+}
+
+std::unordered_set<PyObject*>
+Tracker::getSurvivingObjects()
+{
+    if (d_reference_tracking) {
+        std::scoped_lock<std::mutex> lock(*s_mutex);
+        unregisterReferenceTrackingHooks();
+    }
+
+
+    std::unordered_set<PyObject*> surviving_objects;
+    // remove everything with 0 refcount
+    for (auto obj : d_tracked_objects) {
+        if (Py_REFCNT(obj) > 0) {
+            Py_INCREF(obj);
+            surviving_objects.insert(obj);
+        }
+    }
+    d_tracked_objects.clear();
+    return surviving_objects;
+}
+
 frame_id_t
 Tracker::registerFrame(const RawFrame& frame)
 {
@@ -1058,7 +1125,8 @@ Tracker::createTracker(
         bool native_traces,
         unsigned int memory_interval,
         bool follow_fork,
-        bool trace_python_allocators)
+        bool trace_python_allocators,
+        bool reference_tracking)
 {
     // Note: the GIL is used for synchronization of the singleton
     s_instance_owner.reset(new Tracker(
@@ -1066,7 +1134,8 @@ Tracker::createTracker(
             native_traces,
             memory_interval,
             follow_fork,
-            trace_python_allocators));
+            trace_python_allocators,
+            reference_tracking));
 
     std::unique_lock<std::mutex> lock(*s_mutex);
     tracking_api::Tracker::activate();

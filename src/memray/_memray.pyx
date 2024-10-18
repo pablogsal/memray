@@ -56,6 +56,8 @@ from _memray.source cimport SocketSource
 from _memray.tracking_api cimport Tracker as NativeTracker
 from _memray.tracking_api cimport install_trace_function
 from cpython cimport PyErr_CheckSignals
+from cpython cimport PyObject
+from cpython cimport Py_DECREF
 from libc.math cimport ceil
 from libc.stdint cimport uint64_t
 from libcpp cimport bool
@@ -68,6 +70,7 @@ from libcpp.string cimport string as cppstring
 from libcpp.unordered_map cimport unordered_map
 from libcpp.utility cimport move
 from libcpp.vector cimport vector
+from libcpp.unordered_set cimport unordered_set
 
 from ._destination import Destination
 from ._destination import FileDestination
@@ -118,6 +121,8 @@ cpdef enum AllocatorType:
     PYMALLOC_CALLOC = 13
     PYMALLOC_REALLOC = 14
     PYMALLOC_FREE = 15
+    OBJECT_INIT = 16
+    OBJECT_DEALLOC = 17
 
 cpdef enum PythonAllocatorType:
     PYTHON_ALLOCATOR_PYMALLOC = 1
@@ -631,12 +636,14 @@ cdef class Tracker:
             of supported file formats and their limitations.
     """
     cdef bool _native_traces
+    cdef bool _reference_tracking
     cdef unsigned int _memory_interval_ms
     cdef bool _follow_fork
     cdef bool _trace_python_allocators
     cdef object _previous_profile_func
     cdef object _previous_thread_profile_func
     cdef unique_ptr[RecordWriter] _writer
+    cdef object _surviving_objects
 
     cdef unique_ptr[Sink] _make_writer(self, destination) except*:
         # Creating a Sink can raise Python exceptions (if is interrupted by signal
@@ -661,12 +668,13 @@ cdef class Tracker:
     def __cinit__(self, object file_name=None, *, object destination=None,
                   bool native_traces=False, unsigned int memory_interval_ms = 10,
                   bool follow_fork=False, bool trace_python_allocators=False,
-                  FileFormat file_format=FileFormat.ALL_ALLOCATIONS):
+                  reference_tracking=False, FileFormat file_format=FileFormat.ALL_ALLOCATIONS):
         if (file_name, destination).count(None) != 1:
             raise TypeError("Exactly one of 'file_name' or 'destination' argument must be specified")
 
         cdef cppstring command_line = " ".join(sys.argv)
         self._native_traces = native_traces
+        self._reference_tracking = reference_tracking
         self._memory_interval_ms = memory_interval_ms
         self._follow_fork = follow_fork
         self._trace_python_allocators = trace_python_allocators
@@ -717,17 +725,21 @@ cdef class Tracker:
             if "greenlet" in sys.modules:
                 NativeTracker.beginTrackingGreenlets()
 
+            self._surviving_objects = []
+
             NativeTracker.createTracker(
                 move(writer),
                 self._native_traces,
                 self._memory_interval_ms,
                 self._follow_fork,
                 self._trace_python_allocators,
+                self._reference_tracking,
             )
             return self
 
     @cython.profile(False)
     def __exit__(self, exc_type, exc_value, exc_traceback):
+        self._populate_suriving_objects()
         with tracker_creation_lock:
             NativeTracker.destroyTracker()
             sys.setprofile(self._previous_profile_func)
@@ -735,6 +747,23 @@ cdef class Tracker:
 
             for attr in ("_name", "_ident"):
                 delattr(threading.Thread, attr)
+        
+    cdef void _populate_suriving_objects(self):
+        assert NativeTracker.getTracker() != NULL
+        cdef unordered_set[PyObject*] objects = NativeTracker.getTracker().getSurvivingObjects()
+        for obj in objects:
+            pass
+            self._surviving_objects.append(<object>obj)
+            Py_DECREF(<object>obj)
+    
+    def get_surviving_objects(self):
+        """Get a list of objects that were alive at the end of the tracking period.
+
+        Returns:
+            list: A list of objects that were alive at the end of the tracking period.
+        """
+        return self._surviving_objects
+        
 
 
 def start_thread_trace(frame, event, arg):

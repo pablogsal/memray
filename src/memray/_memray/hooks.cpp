@@ -59,7 +59,9 @@ allocatorKind(const Allocator& allocator)
         case Allocator::VALLOC:
         case Allocator::PYMALLOC_MALLOC:
         case Allocator::PYMALLOC_CALLOC:
-        case Allocator::PYMALLOC_REALLOC: {
+        case Allocator::PYMALLOC_REALLOC:
+        case Allocator::OBJECT_INIT: 
+        case Allocator::OBJECT_DESTROY: {
             return AllocatorKind::SIMPLE_ALLOCATOR;
         }
         case Allocator::FREE:
@@ -484,6 +486,14 @@ PyGILState_Ensure() noexcept
     PyGILState_STATE ret = MEMRAY_ORIG(PyGILState_Ensure)();
     tracking_api::install_trace_function();
     return ret;
+}
+
+
+int
+pyreftracer(PyObject* obj, int event, void *data) noexcept
+{
+    tracking_api::Tracker::trackObject(obj, event);
+    return 0;
 }
 
 }  // namespace memray::intercept

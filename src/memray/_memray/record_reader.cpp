@@ -55,6 +55,10 @@ allocatorName(hooks::Allocator allocator)
             return "pymalloc_realloc";
         case hooks::Allocator::PYMALLOC_FREE:
             return "pymalloc_free";
+        case hooks::Allocator::OBJECT_INIT:
+            return "object_init";
+        case hooks::Allocator::OBJECT_DESTROY:
+            return "object_destroy";
     }
 
     return nullptr;

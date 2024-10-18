@@ -3,6 +3,8 @@ from libc.stdint cimport uint64_t
 from libcpp cimport bool
 from libcpp.memory cimport unique_ptr
 from libcpp.string cimport string
+from libcpp.unordered_set cimport unordered_set
+from cpython cimport PyObject
 
 
 cdef extern from "tracking_api.h" namespace "memray::tracking_api":
@@ -16,6 +18,7 @@ cdef extern from "tracking_api.h" namespace "memray::tracking_api":
             unsigned int memory_interval,
             bool follow_fork,
             bool trace_pymalloc,
+            bool reference_tracking,
         ) except+
 
         @staticmethod
@@ -44,3 +47,6 @@ cdef extern from "tracking_api.h" namespace "memray::tracking_api":
 
         @staticmethod
         void childFork() noexcept nogil
+
+        @staticmethod
+        unordered_set[PyObject*] getSurvivingObjects() except+
