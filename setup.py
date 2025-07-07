@@ -7,6 +7,7 @@ import sys
 import tempfile
 from sys import platform
 from sys import version_info
+import sysconfig
 
 import pkgconfig
 from Cython.Build import cythonize
@@ -17,6 +18,7 @@ from setuptools.command.build_ext import build_ext as build_ext_orig
 
 IS_MAC = sys.platform == "darwin"
 IS_LINUX = "linux" in sys.platform
+IS_FREE_THREADED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
 
 LIBBACKTRACE_LOCATION = (
     pathlib.Path(__file__).parent / "src" / "vendor" / "libbacktrace"
@@ -155,7 +157,7 @@ EXTRA_LINK_ARGS = []
 UNDEF_MACROS = []
 
 if MINIMIZE_INLINING:
-    EXTRA_COMPILE_ARGS.append("-Og")
+    EXTRA_COMPILE_ARGS.append("-O0")
 else:
     EXTRA_COMPILE_ARGS.append("-flto")
     EXTRA_LINK_ARGS.append("-flto")
@@ -190,6 +192,10 @@ DEFINE_MACROS = []
 
 # Ensure that we have a 64-bit off_t in all translation units.
 DEFINE_MACROS.append(("_FILE_OFFSET_BITS", "64"))
+
+if IS_FREE_THREADED:
+    DEFINE_MACROS.append(("MEMRAY_FREE_THREADED", "1"))
+    COMPILER_DIRECTIVES["freethreading_compatible"] = False
 
 # memray uses thread local storage (TLS) variables. As memray is compiled
 # into a Python extension, is a shared object. TLS variables in shared objects
@@ -285,7 +291,7 @@ MEMRAY_INJECT_EXTENSION = Extension(
     extra_link_args=["-std=c++17", *EXTRA_LINK_ARGS],
     define_macros=DEFINE_MACROS,
     undef_macros=UNDEF_MACROS,
-    py_limited_api=True,
+    py_limited_api=not IS_FREE_THREADED,
 )
 
 

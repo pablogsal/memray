@@ -1,4 +1,6 @@
+#ifndef MEMRAY_FREE_THREADED
 #define Py_LIMITED_API 0x03070000
+#endif  // NO_LIMITED_API
 #include "Python.h"
 
 #include <netdb.h>
