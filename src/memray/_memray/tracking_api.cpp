@@ -1145,7 +1145,18 @@ create_profile_arg()
         return nullptr;
     }
 
-    return PyObject_CallMethod(memray_ext, "ProfileFunctionGuard", nullptr);
+    PyObject *arg = PyObject_CallMethod(memray_ext, "ProfileFunctionGuard", nullptr);
+    if (!arg) {
+        return nullptr;
+    }
+#ifdef Py_GIL_DISABLED
+    // "Merge" the reference counts to ensure that the object is deallocated
+    // immediately when the refcount reaches zero.
+    _Py_atomic_store_uintptr_relaxed(&arg->ob_tid, 0);
+    _Py_atomic_store_uint32_relaxed(&arg->ob_ref_local, 0);
+    _Py_atomic_store_ssize_relaxed(&arg->ob_ref_shared, _Py_REF_SHARED(1, _Py_REF_MERGED));
+#endif
+    return arg;
 }
 
 // Called when profiling is initially enabled in each thread.
