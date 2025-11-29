@@ -10,13 +10,12 @@
  *   2. Calls _ghost_trampoline_handler() to get the real return address
  *   3. Restores the return value registers and returns to the real address
  *
- * macOS/Darwin Differences from Linux:
- *   - Symbols are prefixed with underscore (_ghost_ret_trampoline vs ghost_ret_trampoline)
- *   - Uses Mach-O object format instead of ELF
- *   - Section names differ (__TEXT,__text vs .text)
- *   - Exception table goes in __TEXT,__gcc_except_tab
- *   - Uses .private_extern instead of .hidden
- *   - No .type directive (Mach-O doesn't use it)
+ * macOS/Darwin Exception Handling Strategy:
+ *   Darwin's assembler doesn't allow non-private labels (symbols not starting with L)
+ *   inside CFI regions (.cfi_startproc/.cfi_endproc pairs). To work around this:
+ *   1. Use private labels (Lxxx) for internal code structure
+ *   2. Place ALL code inside a single CFI region for proper exception handling
+ *   3. Use .set directives to create public symbol aliases pointing to private labels
  *
  * Apple ARM64 ABI Notes:
  *   - Return values: x0-x7 (same as AAPCS64)
@@ -34,42 +33,42 @@
 .p2align	2
 
 /* ==========================================================================
- * _ghost_ret_trampoline_start - Exception handling anchor
+ * Public symbol declarations (before CFI region)
  * ==========================================================================
- * This symbol marks the function start for DWARF exception handling.
- * macOS uses the same CFI mechanism as Linux but with Darwin-specific
- * section names and symbol conventions.
- *
- * CFI Directives:
- *   - .cfi_personality 155: Encoding for ___gxx_personality_v0
- *   - .cfi_lsda 16: Reference to our exception handling data
- *   - .cfi_undefined lr: Signal that return address is non-standard
+ * Declare public symbols BEFORE the CFI region starts. We'll use .set
+ * at the end to point these to the private labels inside the CFI region.
  */
 .globl _ghost_ret_trampoline_start
+.globl _ghost_ret_trampoline
 .private_extern _ghost_ret_trampoline_start
+.private_extern _ghost_ret_trampoline
 
-_ghost_ret_trampoline_start:
+/* ==========================================================================
+ * CFI Region - Contains ALL exception-handling-relevant code
+ * ==========================================================================
+ * Everything from Ltrampoline_start through the landing pad is inside
+ * this single CFI region, ensuring proper DWARF unwind info coverage.
+ */
+Ltrampoline_start:
 .cfi_startproc
 .cfi_personality 155, ___gxx_personality_v0
 .cfi_lsda 16,LLSDA0
 .cfi_undefined lr
-.cfi_endproc
 
 /* Exception try region - any exception here redirects to L3 */
 LEHB0:
     nop                         /* Placeholder marking exception region start */
-LEHE0:
 
 /* ==========================================================================
- * _ghost_ret_trampoline - The actual trampoline entry point
+ * Ltrampoline - The actual trampoline entry point (private label)
  * ==========================================================================
  * When a function returns through a patched return address, execution
  * lands here. We retrieve the real return address from GhostStack's
  * shadow stack and continue execution transparently.
+ *
+ * This label is INSIDE the CFI region so exceptions can unwind through it.
  */
-.globl _ghost_ret_trampoline
-.private_extern _ghost_ret_trampoline
-_ghost_ret_trampoline:
+Ltrampoline:
 
     /* -------------------------------------------------------------------------
      * Step 1: Save return value registers
@@ -84,6 +83,7 @@ _ghost_ret_trampoline:
      *   sp+0:  x0, x1 (most common return value location)
      */
     sub sp, sp, #64             /* Allocate 64 bytes (8 * 8 = 64) */
+.cfi_def_cfa_offset 64
     stp x0, x1, [sp, #0]        /* Save x0, x1 (primary return values) */
     stp x2, x3, [sp, #16]       /* Save x2, x3 */
     stp x4, x5, [sp, #32]       /* Save x4, x5 */
@@ -116,6 +116,7 @@ _ghost_ret_trampoline:
     ldp x4, x5, [sp, #32]       /* Restore x4, x5 */
     ldp x6, x7, [sp, #48]       /* Restore x6, x7 */
     add sp, sp, #64             /* Deallocate stack frame */
+.cfi_def_cfa_offset 0
 
     /* -------------------------------------------------------------------------
      * Step 4: Return to real caller
@@ -125,8 +126,10 @@ _ghost_ret_trampoline:
      */
     ret
 
+LEHE0:                          /* End of exception region */
+
 /* ==========================================================================
- * Exception landing pad
+ * Exception landing pad (inside CFI region)
  * ==========================================================================
  * When a C++ exception propagates through our patched frame, the unwinder
  * uses our LSDA to find this landing pad. We:
@@ -141,6 +144,19 @@ L3:
     mov lr, x0                  /* Restore lr with real return address */
     b ___cxa_rethrow            /* Tail-call rethrow (never returns) */
 
+Ltrampoline_end:
+.cfi_endproc
+
+/* ==========================================================================
+ * Public symbol aliases
+ * ==========================================================================
+ * Create public symbols pointing to the private labels inside the CFI region.
+ * This allows C++ code to reference these symbols while keeping the actual
+ * labels inside the CFI region for proper exception handling.
+ */
+.set _ghost_ret_trampoline_start, Ltrampoline_start
+.set _ghost_ret_trampoline, Ltrampoline
+
 
 /* ==========================================================================
  * LSDA (Language Specific Data Area)
@@ -152,6 +168,7 @@ L3:
  *   - What types to catch (0 = catch all, i.e., catch(...))
  *
  * Format follows DWARF exception handling specification.
+ * Note: Offsets are relative to Ltrampoline_start (the CFI function start).
  */
 .section __TEXT,__gcc_except_tab
 .align 2
@@ -163,11 +180,11 @@ LLSDATTD0:
     .byte 0x1                   /* Call site encoding: uleb128 */
     .uleb128 LLSDACSE0-LLSDACSB0    /* Call site table length */
 LLSDACSB0:
-    /* Call site entry: our try region */
-    .uleb128 LEHB0-_ghost_ret_trampoline_start  /* Region start (relative) */
-    .uleb128 LEHE0-LEHB0        /* Region length */
-    .uleb128 L3-_ghost_ret_trampoline_start     /* Landing pad (relative) */
-    .uleb128 0x1                /* Action: index 1 in action table */
+    /* Call site entry: our try region covers the entire trampoline */
+    .uleb128 LEHB0-Ltrampoline_start  /* Region start (relative to function) */
+    .uleb128 LEHE0-LEHB0              /* Region length */
+    .uleb128 L3-Ltrampoline_start     /* Landing pad (relative to function) */
+    .uleb128 0x1                      /* Action: index 1 in action table */
 LLSDACSE0:
     .byte 0x1                   /* Action table entry */
     .byte 0                     /* No next action */

@@ -5,6 +5,7 @@ These tests verify that ghost_stack (fast unwinding) works correctly:
 2. Ghost_stack frames exactly match libunwind frames
 """
 
+import platform
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,8 @@ from memray._test_utils import GhostStackTestContext, has_ghost_stack_support
 
 HERE = Path(__file__).parent
 TEST_GHOST_STACK_EXTENSION = HERE / "ghost_stack_test_extension"
+
+IS_MACOS = platform.system() == "Darwin"
 
 pytestmark = pytest.mark.skipif(
     not has_ghost_stack_support(),
