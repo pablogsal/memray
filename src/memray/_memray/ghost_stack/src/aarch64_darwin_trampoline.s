@@ -6,14 +6,10 @@
 .build_version macos, 14, 0	sdk_version 15, 1
 .p2align	2
 
-/* Use DWARF unwinding only, not compact unwind */
-.cfi_sections .eh_frame
-
 .globl _ghost_ret_trampoline
 .private_extern _ghost_ret_trampoline
 _ghost_ret_trampoline:
 .cfi_startproc
-/* Use encoding 0x9b (indirect|pcrel|sdata4) with indirect reference */
 .cfi_personality 0x9b, L_personality_ptr
 .cfi_lsda 0x1b, LLSDA0
 .cfi_undefined lr
@@ -40,20 +36,21 @@ LEHB0:
 .cfi_def_cfa_offset 0
 
     ret
-LEHE0:
 
 L3:
     bl _ghost_exception_handler
     mov lr, x0
     b ___cxa_rethrow
 
+Ltrampoline_end:
+    nop  /* padding to ensure proper size */
 .cfi_endproc
 
 .globl _ghost_ret_trampoline_start
 .private_extern _ghost_ret_trampoline_start
 .set _ghost_ret_trampoline_start, _ghost_ret_trampoline
 
-/* Indirect personality function pointer (like Linux DW.ref) */
+/* Indirect personality function pointer */
 .section __DATA,__data
 .p2align 3
 L_personality_ptr:
@@ -63,15 +60,15 @@ L_personality_ptr:
 .section __TEXT,__gcc_except_tab
 .p2align 2
 LLSDA0:
-    .byte 0xff                  /* @LPStart encoding: omit */
-    .byte 0x9b                  /* @TType encoding: indirect pcrel sdata4 */
+    .byte 0xff
+    .byte 0x9b
     .uleb128 LLSDATT0-LLSDATTD0
 LLSDATTD0:
-    .byte 0x1                   /* Call site encoding: uleb128 */
+    .byte 0x1
     .uleb128 LLSDACSE0-LLSDACSB0
 LLSDACSB0:
     .uleb128 LEHB0-_ghost_ret_trampoline
-    .uleb128 LEHE0-LEHB0
+    .uleb128 L3-LEHB0
     .uleb128 L3-_ghost_ret_trampoline
     .uleb128 0x1
 LLSDACSE0:
