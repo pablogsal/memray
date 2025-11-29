@@ -6,6 +6,9 @@
 .build_version macos, 14, 0	sdk_version 15, 1
 .p2align	2
 
+/* Use DWARF unwinding only, not compact unwind */
+.cfi_sections .eh_frame
+
 .globl _ghost_ret_trampoline
 .private_extern _ghost_ret_trampoline
 _ghost_ret_trampoline:
