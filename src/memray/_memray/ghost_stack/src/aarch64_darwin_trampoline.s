@@ -45,15 +45,15 @@
  *   - .cfi_lsda 16: Reference to our exception handling data
  *   - .cfi_undefined lr: Signal that return address is non-standard
  */
-/* Single function label - alias created after cfi_endproc */
-.globl _ghost_ret_trampoline
-.private_extern _ghost_ret_trampoline
+.globl _ghost_ret_trampoline_start
+.private_extern _ghost_ret_trampoline_start
 
-_ghost_ret_trampoline:
+_ghost_ret_trampoline_start:
 .cfi_startproc
 .cfi_personality 155, ___gxx_personality_v0
 .cfi_lsda 16,LLSDA0
 .cfi_undefined lr
+.cfi_endproc
 
 /* Exception try region - any exception here redirects to L3 */
 LEHB0:
@@ -61,12 +61,15 @@ LEHB0:
 LEHE0:
 
 /* ==========================================================================
- * Trampoline entry point (same as _ghost_ret_trampoline above)
+ * _ghost_ret_trampoline - The actual trampoline entry point
  * ==========================================================================
  * When a function returns through a patched return address, execution
  * lands here. We retrieve the real return address from GhostStack's
  * shadow stack and continue execution transparently.
  */
+.globl _ghost_ret_trampoline
+.private_extern _ghost_ret_trampoline
+_ghost_ret_trampoline:
 
     /* -------------------------------------------------------------------------
      * Step 1: Save return value registers
@@ -138,12 +141,6 @@ L3:
     mov lr, x0                  /* Restore lr with real return address */
     b ___cxa_rethrow            /* Tail-call rethrow (never returns) */
 
-.cfi_endproc
-
-/* Create alias for _ghost_ret_trampoline_start after CFI block */
-.globl _ghost_ret_trampoline_start
-.private_extern _ghost_ret_trampoline_start
-.set _ghost_ret_trampoline_start, _ghost_ret_trampoline
 
 /* ==========================================================================
  * LSDA (Language Specific Data Area)
