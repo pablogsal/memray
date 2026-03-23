@@ -45,7 +45,8 @@
     .type    ghost_ret_trampoline_start, @function
 ghost_ret_trampoline_start:
 .LFB0:
-    .cfi_startproc
+    .cfi_startproc simple
+    .cfi_def_cfa rsp, 8
     .cfi_personality 0x9b,DW.ref.__gxx_personality_v0
     .cfi_lsda 0x1b,.LLSDA0
     .cfi_undefined rip
@@ -184,7 +185,8 @@ ghost_ret_trampoline:
      *   3. Rethrow the exception
      */
     .section    .text.unlikely
-    .cfi_startproc
+    .cfi_startproc simple
+    .cfi_def_cfa rsp, 8
     .cfi_personality 0x9b,DW.ref.__gxx_personality_v0
     .cfi_lsda 0x1b,.LLSDAC0
     .type    ghost_ret_trampoline_start.cold, @function

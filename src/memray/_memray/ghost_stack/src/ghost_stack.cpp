@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cxxabi.h>
+#include <dlfcn.h>
 #include <mutex>
 #include <pthread.h>
 #include <vector>
@@ -822,4 +823,43 @@ ghost_exception_handler(void* exception)
     return ret;
 }
 
-}  // extern
+}  // extern "C"
+
+// ============================================================================
+// __cxa_throw Interception
+// ============================================================================
+//
+// When a C++ exception is thrown, the exception unwinder walks the stack using
+// DWARF unwind info. During this process, libunwind allocates large cursor
+// structures on the stack that can physically overlap with and overwrite the
+// patched return addresses in frames above.
+//
+// To prevent this, we intercept __cxa_throw and reset the ghost stack
+// (restoring all original return addresses) BEFORE the exception propagates.
+// This way the exception unwinder sees the original, unmodified stack.
+// ============================================================================
+
+using cxa_throw_fn = void (*)(void*, std::type_info*, void (*)(void*));
+
+static cxa_throw_fn
+get_real_cxa_throw()
+{
+    static cxa_throw_fn real = reinterpret_cast<cxa_throw_fn>(dlsym(RTLD_NEXT, "__cxa_throw"));
+    return real;
+}
+
+extern "C" __attribute__((visibility("default"))) void
+__cxa_throw(void* thrown_exception, std::type_info* tinfo, void (*dest)(void*))
+{
+    // Reset ghost stack to restore original return addresses before
+    // the exception unwinder walks the stack
+    ghost_stack_reset();
+
+    // Call the real __cxa_throw
+    cxa_throw_fn real = get_real_cxa_throw();
+    if (real) {
+        real(thrown_exception, tinfo, dest);
+    }
+    // __cxa_throw is noreturn, but if we somehow get here, abort
+    std::abort();
+}

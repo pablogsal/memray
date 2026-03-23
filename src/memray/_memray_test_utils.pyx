@@ -301,6 +301,21 @@ def has_ghost_stack_support():
     return ghost_stack_test_has_support() != 0
 
 
+def ensure_ghost_stack_global():
+    """Load _test_utils.so with RTLD_GLOBAL for __cxa_throw interposition.
+
+    This MUST be called BEFORE any test extension that throws C++ exceptions
+    is imported. Ghost stack intercepts __cxa_throw to reset patched return
+    addresses before the exception unwinder walks the stack, preventing stack
+    corruption from libunwind's internal cursor allocations. The interposition
+    only works if our __cxa_throw is in the global symbol scope before the
+    throwing library is loaded.
+    """
+    import ctypes
+    from memray import _test_utils
+    ctypes.CDLL(_test_utils.__file__, ctypes.RTLD_GLOBAL)
+
+
 cdef class GhostStackTestContext:
     """Context manager for ghost_stack testing.
 

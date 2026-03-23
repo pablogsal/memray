@@ -801,6 +801,16 @@ cdef class Tracker:
         if fast_unwind and not native_traces:
             raise ValueError("fast_unwind requires native_traces to be enabled")
 
+        if fast_unwind:
+            # Load this library with RTLD_GLOBAL so that our __cxa_throw
+            # override is visible to all other shared libraries. Ghost stack
+            # intercepts __cxa_throw to reset patched return addresses before
+            # the exception unwinder walks the stack, preventing stack
+            # corruption from libunwind's internal cursor allocations.
+            import ctypes
+            from memray import _memray
+            ctypes.CDLL(_memray.__file__, ctypes.RTLD_GLOBAL)
+
         cdef cppstring command_line = " ".join(sys.argv)
         self._native_traces = native_traces
         self._fast_unwind = fast_unwind

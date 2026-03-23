@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from memray._test_utils import GhostStackTestContext
+from memray._test_utils import ensure_ghost_stack_global
 from memray._test_utils import has_ghost_stack_support
 
 HERE = Path(__file__).parent
@@ -27,6 +28,12 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture
 def ghost_stack_extension(tmpdir, monkeypatch):
     """Compile and import the ghost_stack test extension."""
+    # Must load _test_utils.so with RTLD_GLOBAL BEFORE importing the test
+    # extension, so our __cxa_throw override is visible when the extension's
+    # PLT entries are resolved. This ensures ghost_stack_reset() is called
+    # before any C++ exception propagates through patched return addresses.
+    ensure_ghost_stack_global()
+
     extension_path = tmpdir / "ghost_stack_test_extension"
     shutil.copytree(TEST_GHOST_STACK_EXTENSION, extension_path)
     subprocess.run(
