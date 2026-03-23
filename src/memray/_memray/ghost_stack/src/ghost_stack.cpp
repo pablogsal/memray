@@ -140,54 +140,28 @@ class GhostStackImpl
         reset();
     }
 
-    // Set custom unwinder (NULL = use default libunwind)
-    void set_unwinder(ghost_stack_unwinder_t unwinder)
-    {
-        custom_unwinder_ = unwinder;
-    }
-
     // Main capture function - returns number of frames
     size_t backtrace(void** buffer, size_t max_frames)
     {
         LOG_DEBUG("=== backtrace ENTER ===\n");
-        LOG_DEBUG("  this=%p, buffer=%p, max_frames=%zu\n", (void*)this, (void*)buffer, max_frames);
-        LOG_DEBUG(
-                "  is_capturing_=%d, trampolines_installed_=%d, entries_.size()=%zu, tail_=%zu\n",
-                (int)is_capturing_,
-                (int)trampolines_installed_,
-                entries_.size(),
-                tail_.load(std::memory_order_acquire));
 
         if (is_capturing_) {
-            LOG_DEBUG("  Recursive call detected, returning 0\n");
             return 0;  // Recursive call, bail out
         }
         is_capturing_ = true;
 
-        size_t result = 0;
-
-        // Fast path: trampolines installed, return cached frames
-        if (trampolines_installed_ && !entries_.empty()) {
-            LOG_DEBUG("  Taking FAST PATH (cached frames)\n");
-            result = copy_cached_frames(buffer, max_frames);
-            is_capturing_ = false;
-            LOG_DEBUG("=== backtrace EXIT (fast path) result=%zu ===\n", result);
-            return result;
-        }
-
-        // Slow path: capture with unwinder and install trampolines
-        LOG_DEBUG("  Taking SLOW PATH (capture and install)\n");
-
         // Clear any stale entries from a previous reset before starting fresh capture
         if (!entries_.empty() && !trampolines_installed_) {
-            LOG_DEBUG("  Clearing %zu stale entries from previous reset\n", entries_.size());
             entries_.clear();
             tail_.store(0, std::memory_order_release);
         }
 
-        result = capture_and_install(buffer, max_frames);
+        // Always use capture_and_install. It efficiently handles both cases:
+        // - No existing trampolines: full capture and install (O(n))
+        // - Existing trampolines: walks only NEW frames until it hits an
+        //   already-patched return address, then merges with cached entries (O(k))
+        size_t result = capture_and_install(buffer, max_frames);
         is_capturing_ = false;
-        LOG_DEBUG("=== backtrace EXIT (slow path) result=%zu ===\n", result);
         return result;
     }
 
@@ -456,65 +430,35 @@ class GhostStackImpl
     }
 
   private:
-    /**
-     * Copy cached frames to output buffer (fast path).
-     *
-     * Called when trampolines are already installed and we can read
-     * directly from the shadow stack.
-     */
-    size_t copy_cached_frames(void** buffer, size_t max_frames)
-    {
-        size_t tail = tail_.load(std::memory_order_acquire);
-        size_t available = tail;  // frames from 0 to tail-1
-        size_t count = (available < max_frames) ? available : max_frames;
-
-        for (size_t i = 0; i < count; ++i) {
-            buffer[i] = reinterpret_cast<void*>(entries_[count - 1 - i].ip);
-        }
-
-        LOG_DEBUG("Fast path: %zu frames\n", count);
-        return count;
-    }
-
-    // Capture frames using unwinder, install trampolines
+    // Capture frames using cursor walk, install trampolines on new frames.
+    // When existing trampolines are found, only the NEW frames are captured
+    // and merged with the existing entries, making this O(k) where k = new frames.
     size_t capture_and_install(void** buffer, size_t max_frames)
     {
         LOG_DEBUG("=== capture_and_install ENTER ===\n");
-        LOG_DEBUG("  this=%p, max_frames=%zu\n", (void*)this, max_frames);
 
-        // First, capture IPs using the unwinder
-        std::vector<void*> raw_frames(max_frames);
-        size_t raw_count = do_unwind(raw_frames.data(), max_frames);
-        LOG_DEBUG("  do_unwind returned %zu frames\n", raw_count);
-
-        if (raw_count == 0) {
-            LOG_DEBUG("  No frames captured, returning 0\n");
-            return 0;
-        }
-
-        // Now walk the stack to get return address locations and install trampolines
+        // Walk the stack with a cursor to find return address locations
         std::vector<StackEntry> new_entries;
-        new_entries.reserve(raw_count);
+        new_entries.reserve(32);
         bool found_existing = false;
 
         unw_context_t ctx;
         unw_cursor_t cursor;
         unw_getcontext(&ctx);
         unw_init_local(&cursor, &ctx);
-        LOG_DEBUG("  Initialized libunwind cursor\n");
 
         // Skip the current frame to avoid patching our own return address
         if (unw_step(&cursor) > 0) {
             // Skipped internal frame
         }
 
-        // Process frames: read current frame, then step to next
-        // Note: After skip loop, cursor is positioned AT the first frame we want
-        // We need to read first, then step (not step-then-read)
+        // Process frames: read current frame, then step to next.
+        // Stops when we hit an already-patched frame (existing trampoline)
+        // or when we've captured max_frames.
         size_t frame_idx = 0;
         int step_result;
         do {
-            if (frame_idx >= raw_count) break;
+            if (frame_idx >= max_frames) break;
 
             unw_word_t ip, sp;
             unw_get_reg(&cursor, UNW_REG_IP, &ip);
@@ -621,24 +565,6 @@ class GhostStackImpl
         return count;
     }
 
-    // Call the unwinder (custom or default)
-    size_t do_unwind(void** buffer, size_t max_frames)
-    {
-        if (custom_unwinder_) {
-            return custom_unwinder_(buffer, max_frames);
-        }
-
-#ifdef __APPLE__
-        // macOS: use standard backtrace function
-        int ret = ::backtrace(buffer, static_cast<int>(max_frames));
-        return (ret > 0) ? static_cast<size_t>(ret) : 0;
-#else
-        // Linux: use libunwind's unw_backtrace
-        int ret = unw_backtrace(buffer, static_cast<int>(max_frames));
-        return (ret > 0) ? static_cast<size_t>(ret) : 0;
-#endif
-    }
-
     // Shadow stack entries (return addresses and their locations)
     std::vector<StackEntry> entries_;
 
@@ -654,8 +580,6 @@ class GhostStackImpl
     // Whether trampolines are currently installed
     bool trampolines_installed_ = false;
 
-    // Optional custom unwinder function
-    ghost_stack_unwinder_t custom_unwinder_ = nullptr;
 };
 
 // ============================================================================
@@ -765,14 +689,6 @@ ghost_stack_backtrace(void** buffer, size_t size)
     register_atfork_handler();
 
     auto& impl = get_instance();
-
-    // Apply global unwinder setting if not already set
-    static thread_local bool unwinder_set = false;
-    if (!unwinder_set) {
-        impl.set_unwinder(g_custom_unwinder);
-        unwinder_set = true;
-    }
-
     return impl.backtrace(buffer, size);
 }
 
