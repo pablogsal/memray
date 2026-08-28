@@ -7,6 +7,7 @@
 
 #ifdef __linux__
 #    include <link.h>
+#    include <sched.h>
 #elif defined(__APPLE__)
 #    include "macho_utils.h"
 #    include <mach/mach.h>
@@ -112,6 +113,11 @@ Py_ssize_t s_extra_index = -1;
 }  // namespace
 
 namespace memray::tracking_api {
+
+#ifdef MEMRAY_HAS_LIBUNWIND_PHDR_CALLBACK
+static void resetCachedProgramHeaders();
+static void resetCachedProgramHeaderReadersAfterFork();
+#endif
 
 bool
 getRSSFromProcStatus(const std::string& proc_status, size_t* rss_in_bytes)
@@ -265,7 +271,7 @@ class PythonStackTracker
     // Fetch the thread-local stack tracker without checking if its stack needs to be reloaded.
     static PythonStackTracker& getUnsafe();
 
-    static std::vector<LazilyEmittedFrame>
+    static internal_allocator::Vector<LazilyEmittedFrame>
     pythonFrameToStack(PyFrameObject* current_frame, Tracker& tracker);
 
     void reloadStackIfTrackerChanged();
@@ -277,12 +283,15 @@ class PythonStackTracker
     void popPythonFrame();
 
     static std::mutex s_mutex;
-    static std::unordered_map<PyThreadState*, std::vector<LazilyEmittedFrame>> s_initial_stack_by_thread;
+    static internal_allocator::UnorderedMap<
+            PyThreadState*,
+            internal_allocator::Vector<LazilyEmittedFrame>>
+            s_initial_stack_by_thread;
     static std::atomic<unsigned int> s_tracker_generation;
 
     uint32_t d_num_pending_pops{};
     uint32_t d_tracker_generation{};
-    std::vector<LazilyEmittedFrame>* d_stack{};
+    internal_allocator::Vector<LazilyEmittedFrame>* d_stack{};
     bool d_greenlet_hooks_installed{};
 };
 
@@ -290,7 +299,9 @@ bool PythonStackTracker::s_greenlet_tracking_enabled{false};
 bool PythonStackTracker::s_native_tracking_enabled{false};
 
 std::mutex PythonStackTracker::s_mutex;
-std::unordered_map<PyThreadState*, std::vector<PythonStackTracker::LazilyEmittedFrame>>
+internal_allocator::UnorderedMap<
+        PyThreadState*,
+        internal_allocator::Vector<PythonStackTracker::LazilyEmittedFrame>>
         PythonStackTracker::s_initial_stack_by_thread;
 std::atomic<unsigned int> PythonStackTracker::s_tracker_generation;
 
@@ -404,7 +415,7 @@ PythonStackTracker::reloadStackIfTrackerChanged()
     }
     d_num_pending_pops = 0;
 
-    std::vector<LazilyEmittedFrame> correct_stack;
+    internal_allocator::Vector<LazilyEmittedFrame> correct_stack;
 
     {
         std::unique_lock<std::mutex> lock(s_mutex);
@@ -432,7 +443,7 @@ PythonStackTracker::populateShadowStack()
 
     PyFrameObject* frame = PyEval_GetFrame();
 
-    std::vector<PyFrameObject*> stack;
+    internal_allocator::Vector<PyFrameObject*> stack;
     while (frame) {
         stack.push_back(frame);
         frame = compat::frameGetBack(frame);
@@ -484,7 +495,7 @@ PythonStackTracker::pushLazilyEmittedFrame(const LazilyEmittedFrame& frame)
     // Note: this function does not require the GIL.
     struct StackCreator
     {
-        std::vector<LazilyEmittedFrame> stack;
+        internal_allocator::Vector<LazilyEmittedFrame> stack;
 
         StackCreator()
         {
@@ -706,10 +717,10 @@ PythonStackTracker::LazilyEmittedFrame::emit(Tracker& tracker)
     return ret;
 }
 
-std::vector<PythonStackTracker::LazilyEmittedFrame>
+internal_allocator::Vector<PythonStackTracker::LazilyEmittedFrame>
 PythonStackTracker::pythonFrameToStack(PyFrameObject* current_frame, Tracker& tracker)
 {
-    std::vector<LazilyEmittedFrame> stack;
+    internal_allocator::Vector<LazilyEmittedFrame> stack;
     while (current_frame) {
         try {
             stack.push_back(LazilyEmittedFrame(current_frame));
@@ -744,7 +755,10 @@ PythonStackTracker::recordAllStacks(Tracker& tracker)
     PyThreadState* current_thread = PyThreadState_Get();
 
     // Record the current Python stack of every thread
-    std::unordered_map<PyThreadState*, std::vector<LazilyEmittedFrame>> stack_by_thread;
+    internal_allocator::UnorderedMap<
+            PyThreadState*,
+            internal_allocator::Vector<LazilyEmittedFrame>>
+            stack_by_thread;
     for (PyThreadState* tstate =
                  PyInterpreterState_ThreadHead(compat::threadStateGetInterpreter(current_thread));
          tstate != nullptr;
@@ -834,7 +848,8 @@ Tracker::Tracker(
         // rounds of TLS destruction if destructors call pthread_setspecific.
         // Note: If this raises an exception, the call_once can be retried.
         if (0 != pthread_key_create(&s_native_unwind_vector_key, [](void* data) {
-                delete static_cast<std::vector<NativeTrace::ip_t>*>(data);
+                internal_allocator::destroy(
+                        static_cast<internal_allocator::Vector<NativeTrace::ip_t>*>(data));
             }))
         {
             throw std::runtime_error{"Failed to create pthread key"};
@@ -904,6 +919,12 @@ Tracker::~Tracker()
 {
     RecursionGuard guard;
     tracking_api::Tracker::deactivate();
+
+#ifdef MEMRAY_HAS_LIBUNWIND_PHDR_CALLBACK
+    if (d_unwind_native_frames) {
+        resetCachedProgramHeaders();
+    }
+#endif
 
     PythonStackTracker::s_native_tracking_enabled = false;
     s_native_trace_cache_enabled = false;
@@ -1075,6 +1096,13 @@ Tracker::parentFork()
 void
 Tracker::childFork()
 {
+#ifdef __linux__
+    internal_allocator::afterFork();
+#endif
+#ifdef MEMRAY_HAS_LIBUNWIND_PHDR_CALLBACK
+    resetCachedProgramHeaderReadersAfterFork();
+#endif
+
     // Intentionally leak any old tracker. Its destructor cannot be called,
     // because it would try to destroy mutexes that might be locked by threads
     // that no longer exist, and to join a background thread that no longer
@@ -1098,6 +1126,11 @@ Tracker::childFork()
     }
 
     if (!new_writer) {
+#ifdef MEMRAY_HAS_LIBUNWIND_PHDR_CALLBACK
+        if (old_tracker && old_tracker->d_unwind_native_frames) {
+            resetCachedProgramHeaders();
+        }
+#endif
         // Either tracking wasn't active, or the tracker was using a sink that
         // can't be cloned. Leave our singleton unset and bail out. Note that
         // the old tracker's hooks may still be installed.  If this process
@@ -1181,13 +1214,13 @@ Tracker::trackAllocationImpl(
         }
         AllocationRecord record{reinterpret_cast<uintptr_t>(ptr), size, func, native_index};
         if (!d_writer->writeThreadSpecificRecord(thread_id(), record)) {
-            std::cerr << "Failed to write output, deactivating tracking" << std::endl;
+            safeWriteStderr("Failed to write output, deactivating tracking\n");
             deactivate();
         }
     } else {
         AllocationRecord record{reinterpret_cast<uintptr_t>(ptr), size, func};
         if (!d_writer->writeThreadSpecificRecord(thread_id(), record)) {
-            std::cerr << "Failed to write output, deactivating tracking" << std::endl;
+            safeWriteStderr("Failed to write output, deactivating tracking\n");
             deactivate();
         }
     }
@@ -1199,7 +1232,7 @@ Tracker::trackDeallocationImpl(void* ptr, size_t size, hooks::Allocator func)
     registerCachedThreadName();
     AllocationRecord record{reinterpret_cast<uintptr_t>(ptr), size, func};
     if (!d_writer->writeThreadSpecificRecord(thread_id(), record)) {
-        std::cerr << "Failed to write output, deactivating tracking" << std::endl;
+        safeWriteStderr("Failed to write output, deactivating tracking\n");
         deactivate();
     }
 }
@@ -1226,13 +1259,13 @@ Tracker::trackObjectImpl(PyObject* obj, int event, const std::optional<NativeTra
 
             ObjectRecord record{reinterpret_cast<uintptr_t>(obj), true, native_index};
             if (!d_writer->writeThreadSpecificRecord(thread_id(), record)) {
-                std::cerr << "Failed to write output, deactivating tracking" << std::endl;
+                safeWriteStderr("Failed to write output, deactivating tracking\n");
                 deactivate();
             }
         } else {
             ObjectRecord record{reinterpret_cast<uintptr_t>(obj), true};
             if (!d_writer->writeThreadSpecificRecord(thread_id(), record)) {
-                std::cerr << "Failed to write output, deactivating tracking" << std::endl;
+                safeWriteStderr("Failed to write output, deactivating tracking\n");
                 deactivate();
             }
         }
@@ -1240,7 +1273,7 @@ Tracker::trackObjectImpl(PyObject* obj, int event, const std::optional<NativeTra
         d_tracked_objects.erase(obj);
         ObjectRecord record{reinterpret_cast<uintptr_t>(obj), false};
         if (!d_writer->writeThreadSpecificRecord(thread_id(), record)) {
-            std::cerr << "Failed to write output, deactivating tracking" << std::endl;
+            safeWriteStderr("Failed to write output, deactivating tracking\n");
             deactivate();
         }
     }
@@ -1255,11 +1288,94 @@ Tracker::invalidate_module_cache_impl()
     updateModuleCacheImpl();
 }
 
+#ifdef MEMRAY_HAS_LIBUNWIND_PHDR_CALLBACK
+struct CachedProgramHeader
+{
+    dl_phdr_info info;
+    internal_allocator::String name;
+    internal_allocator::Vector<ElfW(Phdr)> headers;
+};
+
+using CachedProgramHeaders = internal_allocator::Vector<CachedProgramHeader>;
+
+static std::atomic<const CachedProgramHeaders*> s_program_headers;
+static std::atomic<size_t> s_program_header_readers;
+static_assert(decltype(s_program_headers)::is_always_lock_free);
+static_assert(decltype(s_program_header_readers)::is_always_lock_free);
+static internal_allocator::Vector<CachedProgramHeaders*> s_retired_program_headers;
+
+static int
+iterateCachedProgramHeaders(unw_iterate_phdr_callback_t callback, void* data)
+{
+    s_program_header_readers.fetch_add(1, std::memory_order_acquire);
+    const CachedProgramHeaders* cache = s_program_headers.load(std::memory_order_acquire);
+    int ret = 0;
+    if (cache) {
+        for (const auto& entry : *cache) {
+            dl_phdr_info info = entry.info;
+            info.dlpi_name = entry.name.c_str();
+            info.dlpi_phdr = entry.headers.data();
+            ret = callback(&info, sizeof(info), data);
+            if (ret) {
+                break;
+            }
+        }
+    }
+    s_program_header_readers.fetch_sub(1, std::memory_order_release);
+    return ret;
+}
+
+static void
+replaceCachedProgramHeaders(CachedProgramHeaders* cache)
+{
+    const CachedProgramHeaders* old =
+            s_program_headers.exchange(cache, std::memory_order_acq_rel);
+    if (old) {
+        s_retired_program_headers.push_back(const_cast<CachedProgramHeaders*>(old));
+    }
+}
+
+static void
+resetCachedProgramHeaders()
+{
+    unw_set_iterate_phdr_function(unw_local_addr_space, nullptr);
+    replaceCachedProgramHeaders(nullptr);
+    while (s_program_header_readers.load(std::memory_order_acquire)) {
+        sched_yield();
+    }
+    for (CachedProgramHeaders* cache : s_retired_program_headers) {
+        internal_allocator::destroy(cache);
+    }
+    s_retired_program_headers.clear();
+}
+
+static void
+resetCachedProgramHeaderReadersAfterFork()
+{
+    s_program_header_readers.store(0, std::memory_order_release);
+}
+
+struct ModuleCacheUpdate
+{
+    std::vector<ImageSegments>& mappings;
+    CachedProgramHeaders& program_headers;
+};
+#endif
+
 #ifdef __linux__
 static int
 dl_iterate_phdr_callback(struct dl_phdr_info* info, [[maybe_unused]] size_t size, void* data)
 {
+#ifdef MEMRAY_HAS_LIBUNWIND_PHDR_CALLBACK
+    auto& update = *reinterpret_cast<ModuleCacheUpdate*>(data);
+    auto& mappings = update.mappings;
+    CachedProgramHeader cached{*info, info->dlpi_name ? info->dlpi_name : "", {}};
+    cached.headers.assign(info->dlpi_phdr, info->dlpi_phdr + info->dlpi_phnum);
+    update.program_headers.push_back(std::move(cached));
+#else
     auto& mappings = *reinterpret_cast<std::vector<ImageSegments>*>(data);
+#endif
+
     const char* filename = info->dlpi_name;
     std::string executable;
     assert(filename != nullptr);
@@ -1281,6 +1397,7 @@ dl_iterate_phdr_callback(struct dl_phdr_info* info, [[maybe_unused]] size_t size
     }
 
     mappings.push_back({filename, info->dlpi_addr, std::move(segments)});
+
     return 0;
 }
 #endif
@@ -1298,7 +1415,15 @@ Tracker::updateModuleCacheImpl()
     mappings.reserve(s_last_mappings_size + 1);
 
 #ifdef __linux__
+#    ifdef MEMRAY_HAS_LIBUNWIND_PHDR_CALLBACK
+    auto* program_headers = internal_allocator::construct<CachedProgramHeaders>();
+    ModuleCacheUpdate update{mappings, *program_headers};
+    dl_iterate_phdr(&dl_iterate_phdr_callback, &update);
+    replaceCachedProgramHeaders(program_headers);
+    unw_set_iterate_phdr_function(unw_local_addr_space, iterateCachedProgramHeaders);
+#    else
     dl_iterate_phdr(&dl_iterate_phdr_callback, &mappings);
+#    endif
 #elif defined(__APPLE__)
     uint32_t c = _dyld_image_count();
     for (uint32_t i = 0; i < c; i++) {
@@ -1323,7 +1448,7 @@ Tracker::updateModuleCacheImpl()
     s_last_mappings_size = mappings.size();
 
     if (!d_writer->writeMappings(mappings)) {
-        std::cerr << "memray: Failed to write output, deactivating tracking" << std::endl;
+        safeWriteStderr("memray: Failed to write output, deactivating tracking\n");
         Tracker::deactivate();
         return;
     }
@@ -1335,7 +1460,7 @@ Tracker::registerThreadNameImpl(const char* name)
     RecursionGuard guard;
     dropCachedThreadName();
     if (!d_writer->writeThreadSpecificRecord(thread_id(), ThreadRecord{name})) {
-        std::cerr << "memray: Failed to write output, deactivating tracking" << std::endl;
+        safeWriteStderr("memray: Failed to write output, deactivating tracking\n");
         deactivate();
     }
 }
@@ -1351,7 +1476,7 @@ Tracker::registerCachedThreadName()
     if (it != d_cached_thread_names.end()) {
         auto& name = it->second;
         if (!d_writer->writeThreadSpecificRecord(thread_id(), ThreadRecord{name.c_str()})) {
-            std::cerr << "memray: Failed to write output, deactivating tracking" << std::endl;
+            safeWriteStderr("memray: Failed to write output, deactivating tracking\n");
             deactivate();
         }
         d_cached_thread_names.erase(it);
@@ -1425,17 +1550,8 @@ Tracker::registerCodeObject(PyCodeObject* code_ptr, const CodeObject& code_obj)
     code_object_id_t code_id = d_next_code_object_id++;
     d_code_object_cache[code_ptr] = code_id;
 
-    // Write the code object record
-    pycode_map_val_t code_record{
-            code_id,
-            CodeObjectInfo{
-                    code_obj.function_name,
-                    code_obj.filename,
-                    std::string(code_obj.linetable, code_obj.linetable_size),
-                    code_obj.firstlineno}};
-
-    if (!d_writer->writeRecord(code_record)) {
-        std::cerr << "memray: Failed to write code object record, deactivating tracking" << std::endl;
+    if (!d_writer->writeCodeObject(code_id, code_obj)) {
+        safeWriteStderr("memray: Failed to write code object record, deactivating tracking\n");
         deactivate();
     }
 
@@ -1453,7 +1569,7 @@ Tracker::popFrames(uint32_t count)
 {
     const FramePop entry{count};
     if (!d_writer->writeThreadSpecificRecord(thread_id(), entry)) {
-        std::cerr << "memray: Failed to write output, deactivating tracking" << std::endl;
+        safeWriteStderr("memray: Failed to write output, deactivating tracking\n");
         deactivate();
         return false;
     }
@@ -1465,7 +1581,7 @@ Tracker::pushFrame(const Frame& cooked)
 {
     const FramePush entry{cooked};
     if (!d_writer->writeThreadSpecificRecord(thread_id(), entry)) {
-        std::cerr << "memray: Failed to write output, deactivating tracking" << std::endl;
+        safeWriteStderr("memray: Failed to write output, deactivating tracking\n");
         deactivate();
         return false;
     }

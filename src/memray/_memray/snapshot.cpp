@@ -339,8 +339,8 @@ UsageHistory::UsageHistoryImpl::rebase(size_t new_peak)
 
 UsageHistory::UsageHistoryImpl
 UsageHistory::recordContributionsToCompletedSnapshots(
-        const std::vector<size_t>& highest_peak_by_snapshot,
-        std::vector<HistoricalContribution>& heap_contribution_by_snapshot) const
+        const internal_allocator::Vector<size_t>& highest_peak_by_snapshot,
+        internal_allocator::Vector<HistoricalContribution>& heap_contribution_by_snapshot) const
 {
     size_t current_snapshot = highest_peak_by_snapshot.size();
     auto history = d_history;
@@ -393,7 +393,7 @@ UsageHistory::recordContributionsToCompletedSnapshots(
 
 void
 UsageHistory::recordUsageDelta(
-        const std::vector<size_t>& highest_peak_by_snapshot,
+        const internal_allocator::Vector<size_t>& highest_peak_by_snapshot,
         size_t current_peak,
         size_t count_delta,
         size_t bytes_delta)
@@ -453,7 +453,7 @@ UsageHistory::leaksContribution() const
 
 std::vector<HistoricalContribution>
 UsageHistory::contributionsBySnapshot(
-        const std::vector<size_t>& highest_peak_by_snapshot,
+        const internal_allocator::Vector<size_t>& highest_peak_by_snapshot,
         size_t current_peak) const
 {
     size_t current_snapshot = highest_peak_by_snapshot.size();
@@ -486,7 +486,7 @@ UsageHistory::contributionsBySnapshot(
                 HistoricalContribution{final.last_known_snapshot + 1, static_cast<size_t>(-1), leaks});
     }
 
-    return ret;
+    return {ret.begin(), ret.end()};
 }
 
 void
@@ -585,7 +585,9 @@ HighWaterMarkAggregator::getCurrentHeapSize() const noexcept
 std::vector<size_t>
 HighWaterMarkAggregator::highWaterMarkBytesBySnapshot() const
 {
-    auto ret = d_high_water_mark_bytes_by_snapshot;
+    std::vector<size_t> ret{
+            d_high_water_mark_bytes_by_snapshot.begin(),
+            d_high_water_mark_bytes_by_snapshot.end()};
     ret.push_back(d_heap_size_at_last_peak);
     return ret;
 }

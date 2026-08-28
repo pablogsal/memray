@@ -2,6 +2,7 @@ import collections
 import datetime
 import mmap
 import os
+import platform
 import signal
 import subprocess
 import sys
@@ -121,6 +122,161 @@ def test_simple_cpp_allocation_tracking(tmp_path):
         if event.address == alloc.address and event.allocator == AllocatorType.FREE
     ]
     assert len(frees) >= 1
+
+
+@pytest.mark.skipif(
+    not sys.platform.startswith("linux") or platform.libc_ver()[0] != "glibc",
+    reason="The test allocator uses glibc internals",
+)
+@pytest.mark.parametrize(
+    "file_format", [FileFormat.ALL_ALLOCATIONS, FileFormat.AGGREGATED_ALLOCATIONS]
+)
+@pytest.mark.parametrize("native_traces", [False, True], ids=["allocator", "loader"])
+def test_allocation_hook_avoids_unsafe_runtime_reentry(
+    tmp_path, file_format, native_traces
+):
+    if native_traces and subprocess.run(
+        ["pkg-config", "--atleast-version=1.8", "libunwind"], check=False
+    ).returncode:
+        pytest.skip("libunwind does not support a custom dl_iterate_phdr callback")
+
+    # GIVEN
+    allocator_source = tmp_path / "mock_allocator.c"
+    allocator_library = tmp_path / "mock_allocator.so"
+    allocator_source.write_text(
+        textwrap.dedent(
+            """
+            #define _GNU_SOURCE
+            #include <dlfcn.h>
+            #include <link.h>
+            #include <pthread.h>
+            #include <stddef.h>
+            #include <stdlib.h>
+            #include <sys/mman.h>
+            #include <unistd.h>
+
+            extern void* __libc_calloc(size_t, size_t);
+            extern void __libc_free(void*);
+            extern void* __libc_malloc(size_t);
+            extern void* __libc_realloc(void*, size_t);
+            typedef int (*iterate_phdr_t)(
+                int (*)(struct dl_phdr_info*, size_t, void*), void*);
+            static iterate_phdr_t real_iterate_phdr;
+            static pthread_mutex_t allocator_lock = PTHREAD_MUTEX_INITIALIZER;
+            static __thread int allocator_lock_held;
+            static __thread int check_allocator_calls;
+            static __thread int check_loader_calls;
+
+            __attribute__((constructor))
+            static void initialize(void)
+            {
+                real_iterate_phdr = dlsym(RTLD_NEXT, "dl_iterate_phdr");
+                if (!real_iterate_phdr) {
+                    _exit(98);
+                }
+            }
+
+            // Model an allocator calling mmap while one of its internal locks
+            // is held. Memray must not call back into the process allocator.
+            static void check_reentry(void)
+            {
+                if (allocator_lock_held && check_allocator_calls) {
+                    _exit(99);
+                }
+            }
+
+            int dl_iterate_phdr(
+                int (*callback)(struct dl_phdr_info*, size_t, void*), void* data)
+            {
+                if (allocator_lock_held && check_loader_calls) {
+                    _exit(100);
+                }
+                return real_iterate_phdr(callback, data);
+            }
+
+            void* malloc(size_t size)
+            {
+                check_reentry();
+                return __libc_malloc(size);
+            }
+
+            void* calloc(size_t count, size_t size)
+            {
+                check_reentry();
+                return __libc_calloc(count, size);
+            }
+
+            void* realloc(void* ptr, size_t size)
+            {
+                check_reentry();
+                return __libc_realloc(ptr, size);
+            }
+
+            void free(void* ptr)
+            {
+                check_reentry();
+                __libc_free(ptr);
+            }
+
+            int mmap_while_holding_allocator_lock(int check_allocator)
+            {
+                pthread_mutex_lock(&allocator_lock);
+                allocator_lock_held = 1;
+                check_allocator_calls = check_allocator;
+                check_loader_calls = !check_allocator;
+                void* ptr = mmap(NULL, 4096, PROT_READ | PROT_WRITE,
+                                 MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+                int result = ptr == MAP_FAILED ? -1 : munmap(ptr, 4096);
+                allocator_lock_held = 0;
+                check_allocator_calls = 0;
+                check_loader_calls = 0;
+                pthread_mutex_unlock(&allocator_lock);
+                return result;
+            }
+            """
+        )
+    )
+    subprocess.run(
+        [
+            "cc",
+            "-shared",
+            "-fPIC",
+            "-pthread",
+            allocator_source,
+            "-o",
+            allocator_library,
+            "-ldl",
+        ],
+        check=True,
+    )
+
+    output = tmp_path / "test.bin"
+    code = textwrap.dedent(
+        f"""
+            import ctypes
+            from memray import FileFormat, Tracker
+
+            mock_allocator = ctypes.CDLL(None)
+            with Tracker(
+                {str(output)!r},
+                native_traces={native_traces!r},
+                native_trace_cache={native_traces!r},
+                file_format=FileFormat({int(file_format)}),
+            ):
+                for _ in range(16):
+                    assert mock_allocator.mmap_while_holding_allocator_lock(
+                        {int(not native_traces)}
+                    ) == 0
+            """
+    )
+    env = os.environ.copy()
+    env["LD_PRELOAD"] = str(allocator_library)
+
+    # WHEN
+    result = subprocess.run([sys.executable, "-c", code], env=env, timeout=5)
+
+    # THEN
+    assert result.returncode == 0
 
 
 def test_intercepting_free_sized(tmp_path):

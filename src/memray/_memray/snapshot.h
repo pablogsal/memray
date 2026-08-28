@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "frame_tree.h"
+#include "internal_allocator.h"
 #include "records.h"
 
 namespace memray::api {
@@ -68,11 +69,11 @@ struct Interval
     uintptr_t end;
 };
 
-template<typename T>
+template<typename T, typename Allocator = std::allocator<std::pair<Interval, T>>>
 class IntervalTree
 {
   private:
-    using intervals_t = std::vector<std::pair<Interval, T>>;
+    using intervals_t = std::vector<std::pair<Interval, T>, Allocator>;
     intervals_t d_intervals;
 
   public:
@@ -90,9 +91,9 @@ class IntervalTree
     struct RemovalStats
     {
         size_t total_freed_bytes;
-        std::vector<std::pair<Interval, T>> freed_allocations;
-        std::vector<std::pair<Interval, T>> shrunk_allocations;
-        std::vector<std::pair<Interval, T>> split_allocations;
+        intervals_t freed_allocations;
+        intervals_t shrunk_allocations;
+        intervals_t split_allocations;
     };
 
     RemovalStats removeInterval(uintptr_t start, size_t size)
@@ -103,7 +104,7 @@ class IntervalTree
             return stats;
         }
 
-        std::vector<std::pair<Interval, T>> new_intervals;
+        intervals_t new_intervals;
         new_intervals.reserve(d_intervals.size() + 1);  // We create at most 1 new interval.
         const auto removed_interval = Interval(start, start + size);
 
@@ -309,7 +310,7 @@ class UsageHistory
 {
   public:
     void recordUsageDelta(
-            const std::vector<size_t>& highest_peak_by_snapshot,
+            const internal_allocator::Vector<size_t>& highest_peak_by_snapshot,
             size_t current_peak,
             size_t count_delta,
             size_t bytes_delta);
@@ -317,7 +318,7 @@ class UsageHistory
     Contribution highWaterMarkContribution(size_t highest_peak) const;
     Contribution leaksContribution() const;
     std::vector<HistoricalContribution> contributionsBySnapshot(
-            const std::vector<size_t>& highest_peak_by_snapshot,
+            const internal_allocator::Vector<size_t>& highest_peak_by_snapshot,
             size_t current_peak) const;
 
   private:
@@ -350,12 +351,12 @@ class UsageHistory
     };
 
     UsageHistoryImpl d_history{};
-    std::vector<HistoricalContribution> d_heap_contribution_by_snapshot;
+    internal_allocator::Vector<HistoricalContribution> d_heap_contribution_by_snapshot;
 
     // Append records for already-completed snapshots to the given vector.
     UsageHistoryImpl recordContributionsToCompletedSnapshots(
-            const std::vector<size_t>& highest_peak_by_snapshot,
-            std::vector<HistoricalContribution>& heap_contribution_by_snapshot) const;
+            const internal_allocator::Vector<size_t>& highest_peak_by_snapshot,
+            internal_allocator::Vector<HistoricalContribution>& heap_contribution_by_snapshot) const;
 };
 
 struct AllocationLifetime
@@ -385,11 +386,11 @@ class HighWaterMarkAggregator
   private:
     // For each call to captureSnapshot(), record the index of the highest
     // high water mark found since the last snapshot was taken.
-    std::vector<size_t> d_high_water_mark_index_by_snapshot;
+    internal_allocator::Vector<size_t> d_high_water_mark_index_by_snapshot;
 
     // For each call to captureSnapshot(), record the heap size at the highest
     // high water mark found since the last snapshot was taken.
-    std::vector<size_t> d_high_water_mark_bytes_by_snapshot;
+    internal_allocator::Vector<size_t> d_high_water_mark_bytes_by_snapshot;
 
     // Number of high water marks found (incremented on the falling edge,
     // as well as on a new snapshot being taken).
@@ -398,15 +399,20 @@ class HighWaterMarkAggregator
     size_t d_current_heap_size{};
 
     // Information about allocations and deallocations, aggregated by location.
-    using UsageHistoryByLocation =
-            std::unordered_map<HighWaterMarkLocationKey, UsageHistory, HighWaterMarkLocationKeyHash>;
+    using UsageHistoryByLocation = internal_allocator::UnorderedMap<
+            HighWaterMarkLocationKey,
+            UsageHistory,
+            HighWaterMarkLocationKeyHash>;
     UsageHistoryByLocation d_usage_history_by_location;
 
     // Simple allocations contributing to the current heap size.
-    std::unordered_map<uintptr_t, Allocation> d_ptr_to_allocation;
+    internal_allocator::UnorderedMap<uintptr_t, Allocation> d_ptr_to_allocation;
 
     // Ranged allocations contributing to the current heap size.
-    IntervalTree<Allocation> d_mmap_intervals;
+    IntervalTree<
+            Allocation,
+            internal_allocator::Allocator<std::pair<Interval, Allocation>>>
+            d_mmap_intervals;
 
     UsageHistory& getUsageHistory(const Allocation& allocation);
     void recordUsageDelta(const Allocation& allocation, size_t count_delta, size_t bytes_delta);

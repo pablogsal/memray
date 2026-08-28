@@ -3,7 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
-#include <cstdio>
+
+#define UNW_LOCAL_ONLY
 #include <libunwind.h>
 #include <limits>
 #include <optional>
@@ -11,6 +12,7 @@
 #include <stdexcept>
 #include <utility>
 
+#include "safe_io.h"
 #include "tracking_api.h"
 
 namespace memray::tracking_api {
@@ -33,8 +35,8 @@ struct NativeTraceCacheEntry
     uintptr_t stack_pointer{};
     uint64_t fingerprint{};
     size_t trace_size{};
-    std::vector<frame_id_t> trace;
-    std::vector<const frame_id_t*> return_slots;
+    internal_allocator::Vector<frame_id_t> trace;
+    internal_allocator::Vector<const frame_id_t*> return_slots;
 };
 
 struct StackBounds
@@ -65,8 +67,8 @@ MEMRAY_FAST_TLS thread_local NativeTraceCache* s_native_trace_cache;
 
 __attribute__((noinline)) bool
 captureReturnSlots(
-        std::vector<const frame_id_t*>& return_slots,
-        const std::vector<frame_id_t>& expected,
+        internal_allocator::Vector<const frame_id_t*>& return_slots,
+        const internal_allocator::Vector<frame_id_t>& expected,
         size_t expected_size,
         const StackBounds& stack_bounds)
 {
@@ -238,12 +240,12 @@ nativeTraceCache()
         s_native_trace_cache =
                 static_cast<NativeTraceCache*>(pthread_getspecific(s_native_trace_cache_key));
         if (!s_native_trace_cache) {
-            s_native_trace_cache = new NativeTraceCache;
+            s_native_trace_cache = internal_allocator::construct<NativeTraceCache>();
             if (pthread_setspecific(s_native_trace_cache_key, s_native_trace_cache)) {
-                delete s_native_trace_cache;
+                internal_allocator::destroy(s_native_trace_cache);
                 s_native_trace_cache = nullptr;
                 Tracker::deactivate();
-                fprintf(stderr, "memray: pthread_setspecific failed for native trace cache\n");
+                safeWriteStderr("memray: pthread_setspecific failed for native trace cache\n");
             }
         }
     }
@@ -264,7 +266,7 @@ traceFingerprint(const frame_id_t* trace, size_t size)
 }  // namespace
 
 __attribute__((noinline)) size_t
-captureNativeTrace(std::vector<frame_id_t>& frames)
+captureNativeTrace(internal_allocator::Vector<frame_id_t>& frames)
 {
     const uintptr_t stack_pointer = currentStackPointer();
     NativeTraceCache* cache_ptr = nativeTraceCache();
@@ -329,7 +331,7 @@ setupNativeTraceCache()
     if (pthread_key_create(&s_native_trace_cache_key, [](void* data) {
             RecursionGuard guard;
             s_native_trace_cache = nullptr;
-            delete static_cast<NativeTraceCache*>(data);
+            internal_allocator::destroy(static_cast<NativeTraceCache*>(data));
         }))
     {
         throw std::runtime_error{"Failed to create native trace cache key"};

@@ -10,6 +10,7 @@
 #include <stdexcept>
 
 #include "frame_tree.h"
+#include "internal_allocator.h"
 #include "records.h"
 #include "snapshot.h"
 
@@ -77,6 +78,7 @@ class StreamingRecordWriter : public RecordWriter
 
     bool writeRecord(const MemoryRecord& record) override;
     bool writeRecord(const pycode_map_val_t& item) override;
+    bool writeCodeObject(code_object_id_t code_id, const CodeObject& code) override;
     bool writeRecord(const UnresolvedNativeFrame& record) override;
 
     bool writeMappings(const std::vector<ImageSegments>& mappings) override;
@@ -143,6 +145,7 @@ class AggregatingRecordWriter : public RecordWriter
 
     bool writeRecord(const MemoryRecord& record) override;
     bool writeRecord(const pycode_map_val_t& item) override;
+    bool writeCodeObject(code_object_id_t code_id, const CodeObject& code) override;
     bool writeRecord(const UnresolvedNativeFrame& record) override;
 
     bool writeMappings(const std::vector<ImageSegments>& mappings) override;
@@ -161,21 +164,29 @@ class AggregatingRecordWriter : public RecordWriter
 
   private:
     // Aliases
-    using python_stack_ids_t = std::vector<FrameTree::index_t>;
-    using python_stack_ids_by_tid = std::unordered_map<thread_id_t, python_stack_ids_t>;
+    using python_stack_ids_t = internal_allocator::Vector<FrameTree::index_t>;
+    using python_stack_ids_by_tid =
+            internal_allocator::UnorderedMap<thread_id_t, python_stack_ids_t>;
 
     // Data members
     HeaderRecord d_header;
     TrackerStats d_stats;
-    Registry<Frame> d_python_frame_registry;
-    std::unordered_map<code_object_id_t, CodeObjectInfo> d_code_objects_by_id;
-    std::vector<UnresolvedNativeFrame> d_native_frames{};
+    Registry<Frame, internal_allocator::Allocator<Frame>> d_python_frame_registry;
+    struct InternalCodeObjectInfo
+    {
+        internal_allocator::String function_name;
+        internal_allocator::String filename;
+        internal_allocator::String linetable;
+        int firstlineno;
+    };
+    internal_allocator::UnorderedMap<code_object_id_t, InternalCodeObjectInfo> d_code_objects_by_id;
+    internal_allocator::Vector<UnresolvedNativeFrame> d_native_frames{};
     std::vector<std::vector<ImageSegments>> d_mappings_by_generation{};
     std::vector<MemorySnapshot> d_memory_snapshots;
-    std::unordered_map<thread_id_t, std::string> d_thread_name_by_tid;
-    FrameTree d_python_frame_tree;
+    internal_allocator::UnorderedMap<thread_id_t, internal_allocator::String> d_thread_name_by_tid;
+    InternalFrameTree d_python_frame_tree;
     python_stack_ids_by_tid d_python_stack_ids_by_thread;
-    std::unordered_map<uintptr_t, frame_id_t> d_surviving_objects;
+    internal_allocator::UnorderedMap<uintptr_t, frame_id_t> d_surviving_objects;
     DeltaEncodedFields d_last;
     api::HighWaterMarkAggregator d_high_water_mark_aggregator;
 };
@@ -276,6 +287,16 @@ StreamingRecordWriter::writeRecord(const pycode_map_val_t& item)
            && writeIntegralDelta(&d_last.code_firstlineno, item.second.firstlineno)
            && writeVarint(item.second.linetable.size())
            && d_sink->writeAll(item.second.linetable.data(), item.second.linetable.size());
+}
+
+bool
+StreamingRecordWriter::writeCodeObject(code_object_id_t code_id, const CodeObject& code)
+{
+    auto token = static_cast<unsigned char>(RecordType::CODE_OBJECT);
+    return writeSimpleType(token) && writeVarint(code_id) && writeString(code.function_name)
+           && writeString(code.filename)
+           && writeIntegralDelta(&d_last.code_firstlineno, code.firstlineno)
+           && writeVarint(code.linetable_size) && d_sink->writeAll(code.linetable, code.linetable_size);
 }
 
 bool
@@ -744,7 +765,27 @@ AggregatingRecordWriter::writeRecord(const pycode_map_val_t& item)
 {
     // For aggregating writer, we'll store code objects in a map
     const auto& [code_id, code_info] = item;
-    d_code_objects_by_id.emplace(code_id, code_info);
+    d_code_objects_by_id.emplace(
+            code_id,
+            InternalCodeObjectInfo{
+                    {code_info.function_name.data(), code_info.function_name.size()},
+                    {code_info.filename.data(), code_info.filename.size()},
+                    {code_info.linetable.data(), code_info.linetable.size()},
+                    code_info.firstlineno});
+    return true;
+}
+
+bool
+AggregatingRecordWriter::writeCodeObject(code_object_id_t code_id, const CodeObject& code)
+{
+    internal_allocator::String linetable(code.linetable, code.linetable_size);
+    d_code_objects_by_id.emplace(
+            code_id,
+            InternalCodeObjectInfo{
+                    code.function_name,
+                    code.filename,
+                    std::move(linetable),
+                    code.firstlineno});
     return true;
 }
 

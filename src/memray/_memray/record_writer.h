@@ -21,6 +21,7 @@ class RecordWriter
 
     virtual bool writeRecord(const MemoryRecord& record) = 0;
     virtual bool writeRecord(const pycode_map_val_t& item) = 0;
+    virtual bool writeCodeObject(code_object_id_t code_id, const CodeObject& code) = 0;
     virtual bool writeRecord(const UnresolvedNativeFrame& record) = 0;
 
     virtual bool writeMappings(const std::vector<ImageSegments>& mappings) = 0;

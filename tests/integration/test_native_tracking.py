@@ -1,4 +1,5 @@
 import functools
+import mmap
 import os
 import platform
 import shutil
@@ -35,6 +36,25 @@ NATIVE_TRACKING_PROGRAM = """
 def test_native_trace_cache_requires_native_traces(tmp_path):
     with pytest.raises(ValueError, match="native_trace_cache requires native_traces"):
         Tracker(tmp_path / "test.bin", native_trace_cache=True)
+
+
+def test_mmap_keeps_its_native_trace(tmp_path):
+    # GIVEN
+    output = tmp_path / "test.bin"
+
+    # WHEN
+    with Tracker(output, native_traces=True):
+        with mmap.mmap(-1, 12345):
+            pass
+
+    # THEN
+    records = [
+        record
+        for record in FileReader(output).get_allocation_records()
+        if record.allocator == AllocatorType.MMAP and record.size == 12345
+    ]
+    (record,) = records
+    assert record.native_stack_trace()
 
 
 def run_native_tracking_program(tmp_path, function_name, *arguments):

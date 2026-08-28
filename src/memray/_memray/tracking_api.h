@@ -23,16 +23,22 @@
 #if defined(__linux__)
 #    define UNW_LOCAL_ONLY
 #    include <libunwind.h>
+#    if defined(UNW_VERSION_MAJOR) && defined(UNW_VERSION_MINOR) \
+            && (UNW_VERSION_MAJOR > 1 || (UNW_VERSION_MAJOR == 1 && UNW_VERSION_MINOR >= 8))
+#        define MEMRAY_HAS_LIBUNWIND_PHDR_CALLBACK
+#    endif
 #elif defined(__APPLE__)
 #    include <execinfo.h>
 #endif
 
 #include "frame_tree.h"
 #include "hooks.h"
+#include "internal_allocator.h"
 #include "linker_shenanigans.h"
 #include "native_trace_cache.h"
 #include "record_writer.h"
 #include "records.h"
+#include "safe_io.h"
 
 #if defined(USE_MEMRAY_TLS_MODEL)
 #    if defined(__GLIBC__)
@@ -143,7 +149,7 @@ class NativeTrace
   public:
     using ip_t = frame_id_t;
 
-    NativeTrace(std::vector<ip_t>& data)
+    NativeTrace(internal_allocator::Vector<ip_t>& data)
     : d_data(data)
     {
     }
@@ -230,7 +236,7 @@ class NativeTrace
   private:
     size_t d_size = 0;
     size_t d_skip = 0;
-    std::vector<ip_t>& d_data;
+    internal_allocator::Vector<ip_t>& d_data;
 };
 
 /**
@@ -316,14 +322,15 @@ class Tracker
 
     static inline bool prepareNativeTrace(std::optional<NativeTrace>& trace)
     {
-        auto t_trace_data_ptr = static_cast<std::vector<NativeTrace::ip_t>*>(
+        auto t_trace_data_ptr = static_cast<internal_allocator::Vector<NativeTrace::ip_t>*>(
                 pthread_getspecific(s_native_unwind_vector_key));
         if (!t_trace_data_ptr) {
-            t_trace_data_ptr = new std::vector<NativeTrace::ip_t>();
+            t_trace_data_ptr =
+                    internal_allocator::construct<internal_allocator::Vector<NativeTrace::ip_t>>();
             if (pthread_setspecific(s_native_unwind_vector_key, t_trace_data_ptr) != 0) {
                 Tracker::deactivate();
-                std::cerr << "memray: pthread_setspecific failed" << std::endl;
-                delete t_trace_data_ptr;
+                safeWriteStderr("memray: pthread_setspecific failed\n");
+                internal_allocator::destroy(t_trace_data_ptr);
                 return false;
             }
             t_trace_data_ptr->resize(128);
@@ -460,7 +467,7 @@ class Tracker
     static bool s_native_trace_cache_enabled;
 
     std::shared_ptr<RecordWriter> d_writer;
-    FrameTree d_native_trace_tree;
+    InternalFrameTree d_native_trace_tree;
     const bool d_unwind_native_frames;
     const bool d_native_trace_cache;
     const unsigned int d_memory_interval;
@@ -470,10 +477,10 @@ class Tracker
     linker::SymbolPatcher d_patcher;
     std::unique_ptr<BackgroundThread> d_background_thread;
 
-    std::unordered_map<PyCodeObject*, code_object_id_t> d_code_object_cache;
+    internal_allocator::UnorderedMap<PyCodeObject*, code_object_id_t> d_code_object_cache;
     code_object_id_t d_next_code_object_id{1};
-    std::unordered_map<uint64_t, std::string> d_cached_thread_names;
-    std::unordered_set<PyObject*> d_tracked_objects;
+    internal_allocator::UnorderedMap<uint64_t, internal_allocator::String> d_cached_thread_names;
+    internal_allocator::UnorderedSet<PyObject*> d_tracked_objects;
 
     // Methods
     static size_t computeMainTidSkip();

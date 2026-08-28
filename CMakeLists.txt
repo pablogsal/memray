@@ -146,6 +146,10 @@ python_add_library(_memray MODULE WITH_SOABI
     ${CMAKE_CURRENT_BINARY_DIR}/_memray.cpp
 )
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_sources(_memray PRIVATE src/memray/_memray/internal_allocator.cpp)
+endif()
+
 if(
     MEMRAY_USE_NATIVE_TRACE_CACHE
     AND CMAKE_SYSTEM_NAME STREQUAL "Linux"

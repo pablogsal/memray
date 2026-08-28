@@ -4,6 +4,7 @@
 #include <unordered_set>
 
 #include "hooks.h"
+#include "internal_allocator.h"
 #include "tracking_api.h"
 
 namespace memray::hooks {
@@ -370,7 +371,7 @@ dlopen(const char* filename, int flag) noexcept
                 if (caller != nullptr) {
                     Dl_serinfo size;
                     if (dlinfo(caller, RTLD_DI_SERINFOSIZE, &size) == 0) {
-                        std::vector<char> paths_buf;
+                        internal_allocator::Vector<char> paths_buf;
                         paths_buf.resize(size.dls_size);
                         auto paths = reinterpret_cast<Dl_serinfo*>(paths_buf.data());
                         *paths = size;
@@ -380,7 +381,7 @@ dlopen(const char* filename, int flag) noexcept
                                 if (name == nullptr || name[0] == '\0') {
                                     continue;
                                 }
-                                std::string dir = name;
+                                internal_allocator::String dir = name;
                                 if (dir.back() != '/') {
                                     dir += '/';
                                 }

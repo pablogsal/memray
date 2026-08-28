@@ -3,7 +3,6 @@
 
 #include <cerrno>
 #include <cstdio>
-#include <sstream>
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -16,6 +15,7 @@
 #include "exceptions.h"
 #include "logging.h"
 #include "lz4_stream.h"
+#include "safe_io.h"
 #include "sink.h"
 
 namespace memray::io {
@@ -177,15 +177,7 @@ FileSink::seek(off_t offset, int whence)
     //       though not to write beyond the end.
     d_buffer = static_cast<char*>(mmap(d_buffer, BUFFER_SIZE, PROT_WRITE, MAP_SHARED, d_fd, offset));
     if (d_buffer == MAP_FAILED) {
-        std::ostringstream msg;
-        msg << "Failed to mmap " << BUFFER_SIZE << " bytes of output file " << d_filename
-            << " at offset " << offset << ": " << strerror(errno);
-        if (offset == 0) {
-            msg << ". The destination filesystem may not support shared writable mmap;"
-                   " try writing the capture file to a different location (e.g. /tmp)"
-                   " or run memray with the --buffered-file-io argument if you can't.";
-        }
-        LOG(ERROR) << msg.str();
+        safeWriteStderr("memray: failed to map the output file\n");
         d_buffer = nullptr;
         return false;
     }
@@ -215,20 +207,7 @@ FileSink::grow(size_t needed)
     } while (rc == EINTR);
 
     if (rc != 0) {
-        std::ostringstream msg;
-        msg << "Failed to grow output file " << d_filename << " by " << delta
-            << " bytes: " << strerror(rc);
-#ifdef __APPLE__
-        const char what[] = "F_PREALLOCATE";
-#else
-        const char what[] = "posix_fallocate";
-#endif
-        if (d_fileSize == 0) {
-            msg << ". The destination filesystem may not support " << what
-                << "; try writing the capture file to a different location (e.g. /tmp)"
-                   " or run memray with the --buffered-file-io argument if you can't.";
-        }
-        LOG(ERROR) << msg.str();
+        safeWriteStderr("memray: failed to grow the output file\n");
         errno = rc;
         return false;
     }

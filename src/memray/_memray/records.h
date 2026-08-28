@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "hooks.h"
+#include "internal_allocator.h"
 #include "python_helpers.h"
 
 namespace memray::tracking_api {
@@ -316,7 +317,7 @@ struct DeltaEncodedFields
     int code_firstlineno{};
 };
 
-template<typename RecordType>
+template<typename RecordType, typename Allocator = std::allocator<RecordType>>
 class Registry
 {
   public:
@@ -347,8 +348,16 @@ class Registry
     }
 
   private:
-    std::unordered_map<RecordType, index_t, typename RecordType::Hash> d_id_by_record{};
-    std::vector<RecordType> d_record_by_id{};
+    using MapAllocator = typename std::allocator_traits<Allocator>::template rebind_alloc<
+            std::pair<const RecordType, index_t>>;
+    std::unordered_map<
+            RecordType,
+            index_t,
+            typename RecordType::Hash,
+            std::equal_to<RecordType>,
+            MapAllocator>
+            d_id_by_record{};
+    std::vector<RecordType, Allocator> d_record_by_id{};
 };
 
 struct ThreadRecord

@@ -32,6 +32,10 @@ add_library(
   source.cpp
   tracking_api.cpp)
 
+if(CMAKE_HOST_SYSTEM_NAME MATCHES "Linux")
+  target_sources(_memray PRIVATE internal_allocator.cpp)
+endif()
+
 if(CMAKE_HOST_SYSTEM_NAME MATCHES "Darwin")
   execute_process(
     COMMAND brew --prefix lz4
