@@ -177,7 +177,23 @@ FileSink::seek(off_t offset, int whence)
     //       though not to write beyond the end.
     d_buffer = static_cast<char*>(mmap(d_buffer, BUFFER_SIZE, PROT_WRITE, MAP_SHARED, d_fd, offset));
     if (d_buffer == MAP_FAILED) {
-        safeWriteStderr("memray: failed to map the output file\n");
+        const int error = errno;
+        safeWriteStderrParts(
+                "Failed to mmap ",
+                BUFFER_SIZE,
+                " bytes of output file ",
+                std::string_view{d_filename},
+                " at offset ",
+                offset,
+                ": ",
+                std::string_view{strerror(error)});
+        if (offset == 0) {
+            safeWriteStderr(". The destination filesystem may not support shared writable mmap;"
+                            " try writing the capture file to a different location (e.g. /tmp)"
+                            " or run memray with the --buffered-file-io argument if you can't.");
+        }
+        safeWriteStderr("\n");
+        errno = error;
         d_buffer = nullptr;
         return false;
     }
@@ -207,7 +223,23 @@ FileSink::grow(size_t needed)
     } while (rc == EINTR);
 
     if (rc != 0) {
-        safeWriteStderr("memray: failed to grow the output file\n");
+        safeWriteStderrParts(
+                "Failed to grow output file ",
+                std::string_view{d_filename},
+                " by ",
+                delta,
+                " bytes: ",
+                std::string_view{strerror(rc)});
+        if (d_fileSize == 0) {
+#ifdef __APPLE__
+            safeWriteStderr(". The destination filesystem may not support F_PREALLOCATE;");
+#else
+            safeWriteStderr(". The destination filesystem may not support posix_fallocate;");
+#endif
+            safeWriteStderr(" try writing the capture file to a different location (e.g. /tmp)"
+                            " or run memray with the --buffered-file-io argument if you can't.");
+        }
+        safeWriteStderr("\n");
         errno = rc;
         return false;
     }
